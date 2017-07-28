@@ -2,10 +2,6 @@ package drx
 
 import scala.collection.mutable
 
-import org.scalajs.dom
-import org.scalajs.dom.raw.Node
-import org.scalajs.dom.{Element, document}
-
 /** Created by david on 10.06.17. */
 object helper {
 

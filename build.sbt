@@ -1,29 +1,36 @@
 //resolvers += Resolver.bintrayRepo("rmgk", "maven")
-//libraryDependencies += "de.tuda.stg" %% "rescala" % "0.20.0-SNAPSHOT"
-//libraryDependencies += "de.tuda.stg" %%% "rescala" % "0.20.0-SNAPSHOT"
+//libraryDependencies += "de.tuda.stg" %%  "rescala"     % "0.20.0-SNAPSHOT"
+//libraryDependencies += "de.tuda.stg" %%% "rescala"     % "0.20.0-SNAPSHOT"
 //libraryDependencies += "de.tuda.stg" %%% "rescalatags" % "0.20.0-SNAPSHOT"
 
-enablePlugins(ScalaJSPlugin)
-libraryDependencies += "org.scala-js"      %%% "scalajs-dom" % "0.9.1"
-libraryDependencies += "com.lihaoyi"       %%% "scalatags"   % "0.6.5"
+//enablePlugins(ScalaJSPlugin)
+//name         := "all"
+//scalaVersion := "2.11.8"
+//libraryDependencies += "org.scala-js" %%% "scalajs-dom" % "0.9.1"
+//libraryDependencies += "com.lihaoyi" %%% "scalatags" % "0.6.5"
+//scalaJSUseMainModuleInitializer := true
+//mainClass in (Compile, run) := Some("main.JSMain")
 
-name := "all"
-version := "0.2"
-scalaVersion:= "2.11.8"
+name         := "all"
+scalaVersion := "2.11.8"
+//libraryDependencies += "com.storm-enroute" %% "coroutines"  % "0.7"
+mainClass in (Compile, run) := Some("main.Main")
 
-lazy val all = project.in(file(".")).aggregate(drxJS, drxJVM)
-
-lazy val drx = crossProject.in(file("."))
-  .jsSettings {
-    mainClass in (Compile, run) := Some("main.JSMain")
-    scalaJSUseMainModuleInitializer := true
-//    libraryDependencies += "com.storm-enroute" %% "coroutines" % "0.6"
-//    scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
-  }
-  .jvmSettings {
-    libraryDependencies += "com.storm-enroute" %%% "coroutines"  % "0.6"
-    libraryDependencies += "org.scala-js" %%% "scalajs-dom" % "0.9.1"
-    mainClass in (Compile,run) := Some("main.Main")
-  }
-lazy val drxJS = drx.js
-lazy val drxJVM = drx.jvm
+//lazy val all = crossProject.in(file(".")).settings {
+//    name         := "all"
+//    scalaVersion := "2.11.8"
+//  }
+//  .jsSettings {
+//    libraryDependencies += "org.scala-js" %%% "scalajs-dom" % "0.9.1"
+//    libraryDependencies += "com.lihaoyi" %%% "scalatags" % "0.6.5"
+//    scalaJSUseMainModuleInitializer := true
+//    mainClass in (Compile, run) := Some("main.JSMain")
+//    // scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
+//  }
+//  .jvmSettings {
+//    // libraryDependencies += "com.storm-enroute" %% "coroutines"  % "0.7"
+//    mainClass in (Compile, run) := Some("main.Main")
+//  }
+//
+//lazy val allJS = all.js
+//lazy val allJVM = all.jvm

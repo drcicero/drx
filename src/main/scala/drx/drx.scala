@@ -145,8 +145,8 @@ package object drx {
     def map[R](x: (K, V) => R): List[R] = List.empty
     def size = 0
   }
-   type PotentialWeakHashMap[K,V] = scala.collection.mutable.WeakHashMap[K,V]
-//  private[drx] type PotentialWeakHashMap[K,V] = NoMap[K,V]
+//   type PotentialWeakHashMap[K,V] = scala.collection.mutable.WeakHashMap[K,V]
+  private[drx] type PotentialWeakHashMap[K,V] = NoMap[K,V]
   private[drx] val debugSigs = new PotentialWeakHashMap[Signal[_], Unit]
   private[drx] val debugVars = new PotentialWeakHashMap[Var[_], Unit]
   val debugObs  = mutable.Map[String, Observer[_]]() // can be made ghost soon, too!

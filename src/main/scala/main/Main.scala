@@ -1,5 +1,7 @@
-import drx.{Signal, Var}
-import main.Render.Task
+package main
+
+import Render.Task
+import drx.{Signal, Observer, Var}
 
 /** Created by david on 10.06.17. */
 object Main extends App {
