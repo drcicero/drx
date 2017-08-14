@@ -18,16 +18,16 @@ private object withContext {
 }
 
 private object signalComparator extends java.util.Comparator[Signal[_]] {
-  override def compare(x: Signal[_], y: Signal[_]): Int = - (y.level - x.level)
+  override def compare(x: Signal[_], y: Signal[_]): Int = x.level - y.level
 }
 
 private case class EvalThisFirst(rx: Signal[_]) extends Throwable
 
 /** this context implements glitch-freeness */
-private class Ctx() {
+private class Ctx {
   def reeval[X](sig: Signal[X]): X = Ctx.activeSig.withValue(Some(sig)) { sig.formula() }
 
-  def mark(rx: Rx[_]): Unit = {
+  def markDirty(rx: Rx[_]): Unit = {
     observers ++= rx.observers
     enqueue(rx.out)
     rx match {
@@ -36,7 +36,7 @@ private class Ctx() {
     }
   }
 
-  def get[X](rx: Rx[X]): X = rx match {
+  def getAndSubscribe[X](rx: Rx[X]): X = rx match {
     case vari: Var[X] =>
       val child = Ctx.activeSig.value.get
       child.in += vari
