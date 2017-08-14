@@ -8,12 +8,12 @@ object grouped {
   def apply[X](changer: => Unit): Unit = withContext { _ => changer }
 }
 
-abstract class Rx[X](name: String = "") {
+sealed abstract class Rx[X] private[drx] (name: String) {
   val id: String = "" + internals.count + name
   def now: X = value.get
   def get: X = internals.activeCtx.value.get.get(this)
   def map[Y](func: X => Y, name: String = ""): Signal[Y] = Signal( func(get), name )
-  def onChange(callback: X => Unit): Observer[X] = new Observer[X](this, callback, "obs" + id)
+  def mkObserver(callback: X => Unit): Observer[X] = new Observer[X](this, callback, "obs" + id)
 
   private[drx] val dummy = Array.tabulate(1000 * 100)( i => i )
   private[drx] var level: Int = 0
@@ -26,7 +26,7 @@ abstract class Rx[X](name: String = "") {
 }
 
 
-class Var[X](init: X, name: String = "") extends Rx[X](name) {
+sealed class Var[X](init: X, name: String = "") extends Rx[X](name) {
   debug.debugVars(this) = Unit
   value = Some(init)
   def set(newValue: X): Unit = withContext { tx => value = Some(newValue); tx.mark(this) }
@@ -39,7 +39,8 @@ object Signal {
   def apply[X](formula: => X, name: String = ""): Signal[X] = new Signal(formula _, name)
 }
 
-class Signal[X](private[drx] val formula: () => X, name: String = "") extends Rx[X](name) {
+/** create using [[Signal.apply]] */
+sealed class Signal[X] private[drx] (private[drx] val formula: () => X, name: String = "") extends Rx[X](name) {
   debug.debugSigs(this) = Unit
 
   // override def now: X = { value.getOrElse { this.reeval() } } // TODO
@@ -86,8 +87,8 @@ class Signal[X](private[drx] val formula: () => X, name: String = "") extends Rx
   }
 }
 
-
-class Observer[X](private[drx] val observed: Rx[X], private val callback: (X) => Unit, name: String = "") {
+/** create using [[Rx.mkObserver]]. */
+sealed class Observer[X] private[drx] (private[drx] val observed: Rx[X], private val callback: (X) => Unit, name: String = "") {
   val id: String = "" + internals.count + name
   debug.debugObs(this) = Unit
   if (debug.useOwnership) Ctx.activeSig.value.get.createdObservers += this
@@ -96,21 +97,10 @@ class Observer[X](private[drx] val observed: Rx[X], private val callback: (X) =>
   // observed.addObs(this)
 
   def isActive: Boolean = observed.observers.contains(this)
+  def deactivate(): Unit = observed.removeObs(this)
+  def activate(): Unit = observed.addObs(this)
 
-  def trigger(): Unit = {
-    println("obs " + id)
-    callback(observed.value.get)
-  }
-
-  def deactivate(): Unit = {
-    if (!isActive) throw new RuntimeException("cannot deactivate deactived observer")
-    observed.removeObs(this)
-  }
-
-  def activate(): Unit = {
-    if (isActive) throw new RuntimeException("cannot activate actived observer")
-    observed.addObs(this)
-  }
+  private[drx] def trigger(): Unit = callback(observed.value.get)
 }
 
 private object internals {

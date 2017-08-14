@@ -65,18 +65,15 @@ private class Ctx() {
   private[drx] def loop(): Unit = {
     var head: Signal[_] = null
     while ({head = levelQueue.poll; head != null}) if (head.calcActive) {
-      val lvl = scala.collection.JavaConverters.asScalaIterator(levelQueue.iterator())
-      println(head.level +" "+ head.id + " of " + lvl.map(_.level).toList)
-      if (lvl.exists(_.level < head.level)) throw new RuntimeException(
-        "did not get smallest element :( " + head.level + " of " + lvl.map(_.level).toList)
-
+//      val lvl = scala.collection.JavaConverters.asScalaIterator(levelQueue.iterator())
+//      println(head.level +" "+ head.id + " of " + lvl.map(_.level).toList)
+//      if (lvl.exists(_.level < head.level)) throw new RuntimeException(
+//        "did not get smallest element :( " + head.level + " of " + lvl.map(_.level).toList)
       try {
         head.reeval() // this may fail
         observers ++= head.observers
         enqueue(head.out)
       } catch { case EvalThisFirst(rx) => enqueue(Set(rx)) }
-    } else {
-      println("skip " + head.id)
     }
   }
 

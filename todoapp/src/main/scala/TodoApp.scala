@@ -10,17 +10,18 @@ import org.scalajs.dom
 
 object TodoApp extends js.JSApp {
 
+  def bodyContains(node: dom.Node) = dom.document.body.asInstanceOf[js.Dynamic].contains(node).asInstanceOf[Boolean]
+
   def replaceLastChild(medium: dom.Node, newelem: dom.Node): Unit = {
-    forallObs(medium) { o => if (o.isActive) o.deactivate() }
+    forallObs(medium)(_.deactivate())
     medium.replaceChild(newelem, medium.lastChild)
-    if (dom.document.body.asInstanceOf[js.Dynamic].contains(medium).asInstanceOf[Boolean])
-      grouped( forallObs(medium) { o => if (!o.isActive) o.activate() } )
+    if (bodyContains(medium)) grouped( forallObs(medium)(_.activate()) )
   }
 
   implicit class SignalToElement(val sig: Signal[_ <: dom.html.Element]) extends AnyVal {
     def drender: dom.html.Element = {
       val medium = span(span("{{init}}")).render
-      val obs = sig.onChange { newelem: dom.Node =>
+      val obs = sig.mkObserver { newelem: dom.Node =>
         replaceLastChild(medium, newelem) // last and only child
         js.timers.setTimeout(100)(checkConsistency())
       }

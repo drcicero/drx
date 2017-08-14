@@ -24,10 +24,10 @@ object Main {
       }
     }
     val medium = div(span("{{init}}"))
-    medium.obsid = sig.onChange({ newelem: Tree =>
+    medium.obsid = sig.mkObserver({ newelem: Tree =>
       val fc = medium.children.head
-      forallObs(fc, { o => if (o.isActive) o.deactivate() })
-      forallObs(newelem, { o => if (!o.isActive) o.activate() })
+      forallObs(fc, _.deactivate())
+      forallObs(newelem, _.activate())
       medium.children(0) = newelem
     })
     medium
