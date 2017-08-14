@@ -34,7 +34,7 @@ object Main {
   }
 
   private def tview(it: Task): Tree =
-    trender(new Signal(() => div(
+    trender(Signal(div(
       span(if (it.done.get) "-" else " "),
       span(it.title.get),
       span(if (it.done.get) "-" else " ")
@@ -55,25 +55,25 @@ object Main {
       span("DO TODOs!"),
       div(span("There are "), trender(mapped), span(" todos left")),
 
-      trender(new Signal(() =>
+      trender(Signal(
         if (model.get.isEmpty)
           span("All done! :)")
         else
-          trender(new Signal(() => div(model.get.map { it => tview(it) }:_*)))
+          trender(Signal(div(model.get.map { it => tview(it) }:_*)))
       ))
     )
 
-    drx.doit()
+    drx.debug.doit()
 
     for (x <- 1 to 3) {
       for (x <- 1 to 20) model.transform(x => x ++ List(new Task("hello")))
-      drx.doit()
+      drx.debug.doit()
 
       for (x <- 1 to 20) model.transform(_.tail)
-      drx.doit()
+      drx.debug.doit()
     }
 
-    drx.doit()
+    drx.debug.doit()
   }
 
   def main(args: Array[String]): Unit = {

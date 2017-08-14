@@ -10,16 +10,20 @@ import org.scalajs.dom
 
 object TodoApp extends js.JSApp {
 
+  def replaceLastChild(medium: dom.Node, newelem: dom.Node): Unit = {
+    forallObs(medium) { o => if (o.isActive) o.deactivate() }
+    medium.replaceChild(newelem, medium.lastChild)
+    if (dom.document.body.asInstanceOf[js.Dynamic].contains(medium).asInstanceOf[Boolean])
+      grouped( forallObs(medium) { o => if (!o.isActive) o.activate() } )
+  }
+
   implicit class SignalToElement(val sig: Signal[_ <: dom.html.Element]) extends AnyVal {
     def drender: dom.html.Element = {
-      val medium = span("{{init}}").render
-      val obs = sig.onChange({ newelem: dom.Node =>
-        forallObs(medium) { o => if (o.isActive) o.deactivate() }
-        forallObs(newelem) { o => if (!o.isActive) o.activate() }
-        val fc = medium.firstChild // first and only child
-        medium.replaceChild(newelem, fc)
-        js.timers.setTimeout(1000)(checkConsistency())
-      })
+      val medium = span(span("{{init}}")).render
+      val obs = sig.onChange { newelem: dom.Node =>
+        replaceLastChild(medium, newelem) // last and only child
+        js.timers.setTimeout(100)(checkConsistency())
+      }
       medium.asInstanceOf[js.Dynamic].drxObserverReference = obs.asInstanceOf[js.Any]
       medium.setAttribute("data-has-obs", obs.id)
       medium
@@ -27,10 +31,11 @@ object TodoApp extends js.JSApp {
   }
   private def forallObs(fc: dom.Node)(f: Observer[_] => Unit) = fc match {
     case fcq: dom.Element     =>
-      val list = fcq.querySelectorAll("[data-has-obs]")
+      val list = fcq.querySelectorAll(":not(.well-hidden) [data-has-obs]")
       (0 until list.length).foreach { i => f(getObs(list(i))) }
     case _ /* TextNode */ => Unit
   }
+
   def getObs(it: dom.Node): Observer[_] = it.asInstanceOf[js.Dynamic].drxObserverReference.asInstanceOf[Observer[_]]
 
   // optionally, we could have type safe interfaces via weakmap
@@ -46,7 +51,7 @@ object TodoApp extends js.JSApp {
   // for debugging / testing purposes
   def checkConsistency(): Unit = {
     val a: Set[Observer[_]] = collectAllObs()
-    val b: Set[Observer[_]] = drx.helper.transitivehull(a.map(_.observed)).map(_.observers).flatten
+    val b: Set[Observer[_]] = drx.debug.transitivehullobservers(a)
     if (a != b) println("mist: onlydom=" + (a -- b).map(_.id) + " | onlygraph=" + (b -- a).map(_.id))
   }
   def collectAllObs(): Set[Observer[_]] = {
@@ -58,97 +63,104 @@ object TodoApp extends js.JSApp {
     x.toSet
   }
 
-  def dview(task: Task): dom.Element = signal(li(
-    if (task.done.get) `class` := "task done" else `class` := "task",
-    input(`type` := "checkbox",
-      if (task.done.get) checked else "",
-      onchange := { ev: dom.Event => task.done.transform { it => !it } }),
-    input(`class` := task.title.get,
-      value := task.title.get,
-      onchange := { ev: dom.Event => task.title.set(ev.target.asInstanceOf[dom.html.Input].value) })
-  ).render).drender
-
   override def main(): Unit = {
-    val model = new Var(List[Task](), "model")
-    val mapped = model
-      .map({ it => it.length }, "length")
-      .map({ it => if (it == 0) "No" else ""+it }, "string")
+    grouped {
 
-    val mapped2 = mapped
-      .map({ it => span(it) }, "span")
-      .map({ it => it.render }, "render")
+      val color = new Var("red", "col")
 
-    val mapped3 = model
-      .map({ it => span(it.map { task => task.title.get.length }.sum).render }, "charsum")
+      def dview(task: Task): dom.Element = Signal(li(
+        if (task.done.get) `class` := "task done" else `class` := "task",
+        input(`type` := "checkbox",
+          if (task.done.get) checked else "",
+          onchange := { ev: dom.Event => task.done.transform { it => !it } }),
+        input(`class` := task.title.get,
+          value := task.title.get,
+          style := "color:" + color.get,
+          onchange := { ev: dom.Event => task.title.set(ev.target.asInstanceOf[dom.html.Input].value) })
+      ).render).drender
 
-//    mapped.onChange(println)
+      val model = new Var(List[Task](), "model")
 
-    val log = textarea(id:="log").render
+      val mapped = model
+        .map({ it => it.count(!_.done.get) }, "notdone")
+        .map({ it => if (it == 0) "no" else ""+it }, "string")
 
-    dom.document.body.appendChild(div(
+      val mapped2 = mapped
+        .map({ it => span(it) }, "span")
+        .map({ it => it.render }, "render")
 
-      button("gen ten", onclick := { e: dom.Event =>
-        for (i <- 0 to 2) model.transform( list => new Task("unique" + i) :: list)
-        log.value = drx.helper.stringit(collectAllObs())
-      }),
-      button("del ten", onclick := { e: dom.Event =>
-        model.set( List[Task]() )
-        drx.printless()
-        log.value = drx.helper.stringit(collectAllObs())
-      }),
-      button("paint", onclick := { e: dom.Event =>
-        drx.printless()
-        log.value = drx.helper.stringit(collectAllObs())
-      }),
+      val mapped3 = model
+        .map({ it => span(it.map { task => task.title.get.length }.sum).render }, "charsum")
 
-      br(),
-      h1("DO TODOS!"),
-      span("There are ", mapped2.drender, " todos left, " +
-        "with a total description length of ", mapped3.drender, "."),
+  //    mapped.onChange(println)
 
-      form(input(placeholder:= "enter new task here"), onsubmit := { ev: dom.Event =>
-        ev.preventDefault()
-        val input = ev.target.asInstanceOf[dom.Element].children(0).asInstanceOf[dom.html.Input]
-        model.transform { model => model ++ List(new Task(input.value)) }
-        input.value = ""
-      }),
+      val log = textarea(id:="log").render
 
-      signal(
-        if (model.get.isEmpty)
-          div(`class` := "info", "All done! :)").render
-        else
-          signal(ul(model.get.map(dview)).render, "ul").drender
-      , "tasklist").drender,
+      dom.document.body.appendChild(span("{{init}}").render)
+      replaceLastChild(dom.document.body, div(
 
-      signal(
-        if (model.get.isEmpty)
-          br().render
-        else input(
-          `type`:="button",
-          value:= "remove all done todos",
-          onclick:= { () =>
-            model.transform( it => it.filter(item => !item.done.now))
-          }
-        ).render
-      ,"button").drender,
+        button("gen ten", onclick := { e: dom.Event =>
+          for (i <- 0 to 10) model.transform( list => new Task("unique" + i) :: list)
+          log.value = drx.debug.stringit(collectAllObs())
+        }),
+        button("del ten", onclick := { e: dom.Event =>
+          model.set( List[Task]() )
+          log.value = drx.debug.stringit(collectAllObs())
+        }),
+        button("paint", onclick := { e: dom.Event =>
+          checkConsistency()
+          log.value = drx.debug.stringit(collectAllObs())
+        }),
 
-      br(),
-      br(),
-      br(),
-      br(),
+        br(),
+        h1("DO TODOS!"),
+        span("There are ", mapped2.drender, " todos left, " +
+          "with a total description length of ", mapped3.drender, "."),
 
-      log,
+        form(input(placeholder:= "enter new task here"), onsubmit := { ev: dom.Event => ev.preventDefault()
+          val input = ev.target.asInstanceOf[dom.Element].children(0).asInstanceOf[dom.html.Input]
+          model.transform { model => model ++ List(new Task(input.value)) }
+          input.value = ""
+        }),
 
-//      button(
-//        style:="display: block", onclick := { () =>
-//          val tmp = document.querySelector("#svg-container svg")
-//          tmp.outerHTML = Viz(rx.printit(), { engine: "dot" })
-//        }, "So be it!"),
-//      div(id:="svg-container", svg()).render,
+        Signal(
+          if (model.get.isEmpty)
+            div(`class` := "info", "All done! :)").render
+          else
+            Signal(ul(model.get.map(dview)).render, "ul").drender
+        , "tasklist").drender,
 
-//      button("doit", onclick:= { () => drx.helper.printless() }),
+        Signal(
+          if (model.get.isEmpty)
+            br().render
+          else input(
+            `type`:="button",
+            value:= "remove all done todos",
+            onclick:= { () =>
+              model.transform( it => it.filter(item => !item.done.now))
+            }
+          ).render
+        ,"button").drender,
 
-    ).render)
+        br(),
+        br(),
+        br(),
+        br(),
+
+        log
+
+  //      button(
+  //        style:="display: block", onclick := { () =>
+  //          val tmp = document.querySelector("#svg-container svg")
+  //          tmp.outerHTML = Viz(rx.printit(), { engine: "dot" })
+  //        }, "So be it!"),
+  //      div(id:="svg-container", svg()).render,
+
+  //      button("doit", onclick:= { () => drx.helper.printless() }),
+
+      ).render)
+
+    }
   }
 
 }
