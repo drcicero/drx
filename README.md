@@ -4,8 +4,14 @@ An experiment in scala to add safe automatic memory management of dynamic reacti
 
 Run the example:
 ~~~
-sbt todoapp/fastOptJS
+sbt todo/fastOptJS
 firefox index.html
+~~~
+
+Or:
+~~~
+sbt todo/fastOptJS
+chromium-browser "http://localhost:8000" & python3 -m http.server 8000
 ~~~
 
 [1] Petricek, Tomas, and Don Syme. "Collecting hollywood's garbage: avoiding space-leaks in composite events." ACM Sigplan Notices 45, no. 8 (2010): 53-62.
