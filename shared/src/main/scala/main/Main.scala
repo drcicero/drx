@@ -1,11 +1,10 @@
 package main
 
-import Render.Task
-import drx.{Signal, Observer, Var}
+import drx.{Signal, Var, Observer}
 
 /** Created by david on 10.06.17. */
-object Main extends App {
-  private abstract class Tree { var obsid: String = "" }
+object Main {
+  private sealed abstract class Tree(var obsid: Observer[_] = null)
   private case class Leaf(content: String) extends Tree
   private case class Ast(children: MList) extends Tree
   private type MList = scala.collection.mutable.ListBuffer[Tree]
@@ -17,25 +16,20 @@ object Main extends App {
   }
 
   private def trender(sig: Signal[_ <: Tree]): Tree = {
-    def disconnectObservers(t: Tree): Unit = {
-      if (t.obsid != "") drx.debugObs.get(t.obsid) match {
-        case None    => throw new RuntimeException("double free '" + t.obsid + "'")
-        case Some(x) => x.disconnect()
-      }
+    def forallObs(t: Tree, func: Observer[_] => Unit): Unit = {
+      if (t.obsid != null) func(t.obsid)
       t match {
-        case Ast(c) => c.foreach(disconnectObservers)
-        case Leaf(s) => ()
+        case Ast(c) => c.foreach(forallObs(_, func))
+        case Leaf(s) =>
       }
     }
     val medium = div(span("{{init}}"))
-    val obs = sig.onChange({ newelem: Tree =>
-      val fc = medium.children(0)
-      disconnectObservers(fc)
+    medium.obsid = sig.onChange({ newelem: Tree =>
+      val fc = medium.children.head
+      forallObs(fc, { o => if (o.isActive) o.deactivate() })
+      forallObs(newelem, { o => if (!o.isActive) o.activate() })
       medium.children(0) = newelem
-    }, onDisconnect = { () =>
-      medium.obsid = ""
     })
-    medium.obsid = obs.id
     medium
   }
 
@@ -46,7 +40,11 @@ object Main extends App {
       span(if (it.done.get) "-" else " ")
     )))
 
-  override def main(args: Array[String]): Unit = {
+  def main(): Unit = {
+    Main.main(Array())
+  }
+
+  def partOfMain(): Unit = {
     val model = new Var(List[Task](), "model")
     val mapped = model
       .map({ it => it.length }, "length")
@@ -65,28 +63,23 @@ object Main extends App {
       ))
     )
 
-    drx.helper.printless(); System.gc(); drx.helper.printless()
+    drx.doit()
 
-    model.transform(x => x ++ List(new Task("hello")))
-    drx.helper.printless(); System.gc(); drx.helper.printless()
+    for (x <- 1 to 3) {
+      for (x <- 1 to 20) model.transform(x => x ++ List(new Task("hello")))
+      drx.doit()
 
-    model.transform(x => x ++ List(new Task("baka")))
-    drx.helper.printless(); System.gc(); drx.helper.printless()
+      for (x <- 1 to 20) model.transform(_.tail)
+      drx.doit()
+    }
 
-    model.transform(x => x ++ List(new Task("heyhey")))
-    drx.helper.printless(); System.gc(); drx.helper.printless()
+    drx.doit()
+  }
 
-    model.now(0).title.set( "" )
-    model.transform( list => list.filter( e => e.title.now != "" ) )
-    drx.helper.printless(); System.gc(); drx.helper.printless()
-
-    model.now(1).title.set( "" )
-    model.transform( list => list.filter( e => e.title.now != "" ) )
-    drx.helper.printless(); System.gc(); drx.helper.printless()
-
-    model.now(0).title.set( "" )
-    model.transform( list => list.filter( e => e.title.now != "" ) )
-    drx.helper.printless(); System.gc(); drx.helper.printless()
+  def main(args: Array[String]): Unit = {
+//    for (x <- 1 to 2) {
+      partOfMain()
+//    }
 
 //    var keeprunning = true
 //    while (keeprunning) {

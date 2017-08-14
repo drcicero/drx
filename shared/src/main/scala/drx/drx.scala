@@ -7,27 +7,28 @@ import scala.util.DynamicVariable
 
 package object drx {
   private var uniqueCtr = 0
-  private val theActiveSignal: DynamicVariable[Option[Signal[_]]] = new DynamicVariable(None)
-// private val theActiveTurn:   DynamicVariable[Option[Turn]]      = new DynamicVariable(None)
+  private val activeSig:DynamicVariable[Option[Signal[_]]] = new DynamicVariable(None)
+//  private val activeTx: DynamicVariable[Option[Tx]]      = new DynamicVariable(None)
 
 
   abstract class Rx[X](name: String = "") {
-    val id: String = "" + (if (name != "") name else {uniqueCtr += 1; uniqueCtr})
+    private val dummy = Array.tabulate(1000 * 100)( i => i )
+
+    val id: String = "" + name + {uniqueCtr += 1; uniqueCtr}
     def now: X = value.get
     def get: X = {
-      val parent = theActiveSignal.value.getOrElse { throw new RuntimeException("invalid state") }
+      val parent = activeSig.value.getOrElse { throw new RuntimeException("invalid state") }
       parent.in += this; this.out += parent
       value.get
     }
-    def map[Y](func: X => Y, name: String = ""): Signal[Y] = new Signal( () => func(get), name )
-    def onChange(callback: X => Unit, onDisconnect: () => Unit = () => {}): Observer[X] = {
-      new Observer(this, callback, onDisconnect)
+    def map[Y](func: X => Y, name: String = ""): Signal[Y] = signal( func(get), name )
+    def onChange(callback: X => Unit): Observer[X] = {
+      new Observer(this, callback, id + ".obs")
     }
 
-//    private[drx] var level = 0
     private[drx] var value: Option[X] = None
     private[drx] val out: mutable.Set[Signal[_]] = mutable.Set()
-    private[drx] val observers: mutable.Set[Observer[X]] = mutable.Set()
+    val observers: mutable.Set[Observer[X]] = mutable.Set()
     private[drx] def isActive: Boolean = observers.nonEmpty || out.exists(it => it.isActive)
     private[drx] def addOut(sig: Signal[_]): Unit = this.out += sig
     private[drx] def addObs(obs: Observer[X]): Unit = this.observers += obs
@@ -38,10 +39,11 @@ package object drx {
 
   class Var[X](init: X, name: String = "") extends Rx[X](name) {
     debugVars(this) = Unit
+
     this.value = Some(init)
     def set(newValue: X): Unit = {
 //      val turn = theActiveTurn.value.getOrElse { throw new RuntimeException("invalid state") }
-      println(s"$name := ${newValue.toString} ($out, $observers)")
+//      println(s"$name := ${newValue.toString} ($out, $observers)")
       value = Some(newValue)
       out.foreach(it => it.reeval())
       observers.foreach(obs => obs.callback(newValue))
@@ -51,16 +53,18 @@ package object drx {
   }
 
 
+  def signal[X](formula: => X, name: String = ""): Signal[X] = new Signal(formula _, name)
   class Signal[X](private val formula: () => X, name: String = "") extends Rx[X](name) {
     debugSigs(this) = Unit
 
     // override def now: X = { value.getOrElse { this.reeval() } }
     override def get: X = {
-      val parent = theActiveSignal.value.getOrElse { throw new RuntimeException("invalid state") }
+      val parent = activeSig.value.getOrElse { throw new RuntimeException("invalid state") }
       parent.in += this; this.out += parent
       value.getOrElse { reeval() }
     }
 
+//    private[drx] val level: Int = 0
     private[drx] val in: mutable.Set[Rx[_]] = mutable.Set()
     private[drx] val createdObservers: mutable.MutableList[Observer[_]] = mutable.MutableList()
 
@@ -72,7 +76,7 @@ package object drx {
     private def checkNowActive(): Unit = if (isActive) { reeval() }
     private def checkStillActive(): Unit = if (!isActive) {
       value = None
-      in.foreach { dep => dep.removeOut(this) }
+      in.foreach { parent => parent.removeOut(this) }
     }
 
     private[drx] def reeval(): X = {
@@ -80,19 +84,18 @@ package object drx {
       this.value = Some(tmp)
       out.foreach(sig => sig.reeval())
       observers.foreach(obs => obs.callback(tmp))
-      this.value = None
       tmp
     }
 
-    private def innerReeval(): X = {
+    private[drx] def innerReeval(): X = {
       if (!isActive) throw new RuntimeException("cannot reeval inactive signal")
 
       val tmpIn = Set() ++ in
       in.clear()
 
-      val result = theActiveSignal.withValue(Some(this)) {
-        createdObservers.foreach(obs => obs.disconnect())
-        createdObservers.clear()
+      val result = activeSig.withValue(Some(this)) {
+//        createdObservers.foreach(obs => obs.disconnect())
+//        createdObservers.clear()
         formula()
       }
 
@@ -106,22 +109,46 @@ package object drx {
   }
 
 
-  class Observer[X](val observed: Rx[X], val callback: (X) => Unit, val onDisconnect: () => Unit) {
-    val id: String = "" + {uniqueCtr += 1; uniqueCtr}
-    debugObs += this.id -> this
-    theActiveSignal.value map { parent => parent.createdObservers += this }
-    observed.addObs(this)
-    def disconnect(): Unit = {
-      debugObs.remove(this.id) getOrElse { throw new RuntimeException("could not delete observer, not found " + this.id) }
+  class Observer[X](val observed: Rx[X], val callback: (X) => Unit, name: String = "") {
+    val id: String = "" + name + {uniqueCtr += 1; uniqueCtr}
+    var isActive = true
+    debugObs(this) = Unit
+//    activeSig.value map { parent => parent.createdObservers += this }
+    observed.addObs(this) // TODO activate immediatly?
+
+    def deactivate(): Unit = {
+      if (!isActive) throw new RuntimeException("cannot deactivate deactived observer")
       observed.removeObs(this)
-      onDisconnect()
+      isActive = false
+    }
+
+    def activate(): Unit = {
+      if (isActive) throw new RuntimeException("cannot activate actived observer")
+      observed.addObs(this)
+      isActive = true
     }
   }
 
-//  private class Turn() {
-//    private var phase1 = mutable.PriorityQueue[Signal[_]]()
-//    private var phase2 = ListBuffer[() => Unit]()
-//    def dirty(signal: Traversable[Signal[_]]): Unit = phase1 ++= signal
+//  private case class Change[X](vari: Var[X], next: X)
+//  private class Tx(changer: () => Unit) { // Transaction
+//    def set(ch: Change[_]): Unit = changes += ch
+//
+//    private val changes: mutable.Set[Change[_]] = mutable.Set[Change[_]]()
+//    activeTx.withValue(Some(this)) { changer() }
+//    changes.foreach { case Change(sig, value) => sig.value = Some(value) }
+//
+//    implicit object ordering extends Ordering[Signal[_]] {
+//      override def compare(x: Signal[_], y: Signal[_]): Int = x.level < y.level
+//    }
+//    private var levelQueue = mutable.PriorityQueue[Signal[_]]()
+//    private var observers  = mutable.Set[Observer[_]]()
+//    changes.foreach(observers ++= _.vari.observers)
+//    changes.foreach(levelQueue ++= _.vari.out)
+//    while (levelQueue.nonEmpty) {
+//      val head = levelQueue.dequeue
+//      val tmp = head.reeval()
+//    }
+//
 //    def isdirty(signal: Signal[_]): Unit = phase1.sameElements(Seq(signal))
 //    def schedule(f: () => Unit): Unit = phase2 += f
 //    def commit(): Unit = phase2.foreach(_.apply)
@@ -130,25 +157,29 @@ package object drx {
 //      try top.reeval() catch { case DependeciesChanged => top.level = }
 //    }
 //  }
-//  private def getOrCreateTurn[X](f: () => Unit): Unit = {
-//    theActiveTurn.value match {
+//  private def transact[X](f: () => Unit): Unit = {
+//    activeTx.value match {
 //      case Some(x) => x.schedule(f)
-//      case None    => transaction(f)
+//      case None    => new Tx(f)
 //    }
 //  }
 //  case object DependeciesChanged extends Throwable
 
-  //////////////////////////////////////////////////////////////////////////////
-  // ghost testing / debugging variables
-  private[drx] class NoMap[K, V] {
-    def update(a: K, b: V): Unit = Unit
-    def map[R](x: (K, V) => R): List[R] = List.empty
-    def size = 0
+  def printless(): Unit = {
+    println(compat2.heapSize())
+//    println("v=" + debugVars.size + " s=" + debugSigs.size +
+//      " o=" + debugObs.size + " heap=" + compat2.heapSize() / 10000000)
   }
-//   type PotentialWeakHashMap[K,V] = scala.collection.mutable.WeakHashMap[K,V]
-  private[drx] type PotentialWeakHashMap[K,V] = NoMap[K,V]
-  private[drx] val debugSigs = new PotentialWeakHashMap[Signal[_], Unit]
-  private[drx] val debugVars = new PotentialWeakHashMap[Var[_], Unit]
-  val debugObs  = mutable.Map[String, Observer[_]]() // can be made ghost soon, too!
+
+  def doit() = {
+    printless()
+    for (i <- 0 to 5) compat2.gc()
+    printless()
+  }
+
+  //////////////////////////////////////////////////////////////////////////////
+  private[drx] val debugSigs = compat2.PotentialWeakHashMap[Signal[_], Unit]()
+  private[drx] val debugVars = compat2.PotentialWeakHashMap[Var[_], Unit]()
+  private[drx] val debugObs  = compat2.PotentialWeakHashMap[Observer[_], Unit]() // can be made PotentialWeakHashMap soon, too!
   //////////////////////////////////////////////////////////////////////////////
 }
