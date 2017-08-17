@@ -5,8 +5,6 @@ import scala.collection.mutable
 /** Created by david on 10.06.17. */
 object debug {
 
-  val useOwnership = false
-
   /** only for ghost testing / debugging variables */
   class NoMap[K, V] {
     def update(a: K, b: V): Unit = Unit
@@ -15,9 +13,7 @@ object debug {
     def size = 0
   }
 
-  private[drx] val debugSigs = compat2.compat2.PotentialWeakHashMap[Signal[_], Unit]()
-  private[drx] val debugVars = compat2.compat2.PotentialWeakHashMap[Var[_], Unit]()
-  private[drx] val debugObs  = compat2.compat2.PotentialWeakHashMap[Observer[_], Unit]()
+  private[drx] val debugRxs = compat2.compat2.PotentialWeakHashMap[Node[_], Unit]()
 
   def printless(): Unit = {
     println(compat2.compat2.heapSize())
@@ -32,10 +28,9 @@ object debug {
   }
 
   def serialize(x: Any): String = x match {
-    case None                      => "none"
-    case Some(y)                   => serialize(y)
-    case x: Rx[_]                  => x.id
-    case x: Observer[_]            => x.id
+    case None       => "none"
+    case Some(y)    => serialize(y)
+    case x: Node[_] => x.id
     // case x: Node => x.outerHTML.replace('"', "'")
     case x: mutable.Map[_, _]      =>
       "{" + x.map {
@@ -46,82 +41,52 @@ object debug {
     case _ => "" + x
   }
 
-  def getthem(rx: Rx[_], acc: mutable.Set[Rx[_]]): Unit = if (!acc.contains(rx)) rx match {
-    case x: Var[_]    => acc += x
-      x.out.foreach { y => getthem(y, acc) }
-    case x: Signal[_] => acc += x
-      x.in.foreach { y => getthem(y, acc) }
-      x.out.foreach { y => getthem(y, acc) }
+  def getthem(rx: Node[_], acc: mutable.Set[Node[_]]): Unit = if (!acc.contains(rx)) {
+    acc += rx
+    rx.ins.foreach { y => getthem(y, acc) }
+    rx.getOuts.foreach { y => getthem(y, acc) }
   }
 
-  def transitivehull(xs: Set[Rx[_]]): Set[Rx[_]] = {
-    val set = mutable.Set[Rx[_]]()
+  def transitivehull(xs: Set[Node[_]]): Set[Node[_]] = {
+    val set = mutable.Set[Node[_]]()
     xs.foreach(getthem(_, set))
     set.toSet
   }
 
-  def transitivehullobservers(xs: Set[Observer[_]]): Set[Observer[_]] = {
-    val set = mutable.Set[Rx[_]]()
-    xs.map(_.observed).foreach(getthem(_, set))
-    set.toSet[Rx[_]].map(_.observers).flatten
-  }
+//  def transitivehullobservers(xs: Set[Observer[_]]): Set[Observer[_]] = {
+//    val set = mutable.Set[DataflowNode[_]]()
+//    xs.flatMap(_.getOuts).foreach(getthem(_, set))
+//    set.flatMap(_.getOuts).collect { case (x:Observer[_]) => x }.toSet
+//  }
 
-  def linked[X](a: Observer[X]): Boolean = a.observed.observers.contains(a)
+  def stringit(root: Set[Node[_]] = Set()): String = {
 
-  def stringit(root: Set[Observer[_]] = Set()): String = {
+    val sigs = transitivehull(root ++ debugRxs.keys)
 
-    val obs = root ++ debug.debugObs.keys
-    val rxs = transitivehull(obs.map(_.observed))
-    val vars: Set[Var[_]] = rxs.collect { case x: Var[_] => x } ++ debug.debugVars.keys
-    val sigs: Set[Signal[_]] =  rxs.collect { case x: Signal[_] => x } ++ debug.debugSigs.keys
+    def color(rx: Node[_]): String = rx match {
+      case _: Var[_]      => "#00aadd"
+      case _: Token       => "#ddaa00"
+      case it: Reactor[_] => if (it.calcActive) "#aadd00" else "silver"
+    }
 
     ("digraph {\n" +
 
-      vars.map { it => (
-
-        s"""  "${it.id}" [style=filled,fillcolor="#00aadd",tooltip="""" +
-
-          serialize(it.value) + "\"]\n" + it.out.map {
-            child => s"""  "${it.id }" -> "${child.id }" [dir=both]"""
-          }.mkString("\n")
-
-        )}.mkString("\n") + "\n\n" +
-
       sigs.map {it => (
 
-        s"""  "${it.id}" [style=filled,fillcolor="${if(it.calcActive) "#aadd00" else "silver"}",tooltip="${serialize(it.value)}"]\n""" +
+        s"""  "${it.id}" [style=filled,fillcolor="${color(it)}",tooltip="${serialize(it.value)}"]\n""" +
 
-          it.in.filter {
-            dep => !dep.out.contains(it)
-          }.map {
+          it.ins.filter(!_.getOuts.toSet.contains(it)).map {
             dep => s"""  "${dep.id }" -> "${it.id }" [color=silver dir=back]"""
           }.mkString("\n") +
 
-          it.out.map {
+          it.getOuts.map {
             child => s"""  "${it.id }" -> "${child.id }" [dir=both]"""
           }.mkString("\n") +
 
-          it.observers.map {
-            obs => s"""  "${it.id }" -> "${obs.id }" [dir=both]"""
-          }.mkString("\n") +
-
-//          it.createdObservers.map {
-//            child => s"""  "${it.id }" -> "${child.id }" [color=orange]"""
-//          }.mkString("\n") +
-
           "\n"
 
-        )}.mkString("\n") +
+        )}.mkString("\n") + "\n" +
 
-      obs.map { it => (
-
-        s"""  "${it.id}" [style=filled,fillcolor="${if(it.isActive) "#ddaa00" else "silver"}",tooltip="${serialize("elem") }"]""" +
-
-          (if (linked(it)) ""
-          else s"""  "${it.observed.id }" -> "${it.id}" [color=silver,dir=back]""")
-
-        )}.mkString("\n") + "\n\n" +
-
-      "\n}")
+      "\n}\n\n")
   }
 }

@@ -1,6 +1,6 @@
 package main
 
-import drx.{Signal, Var, Observer}
+import drx.{Signal, Var, Observer, Token}
 
 /** Created by david on 10.06.17. */
 object Main {
@@ -15,6 +15,7 @@ object Main {
     case Ast(l) => l.foreach((x) => printTree(x, i+1))
   }
 
+  private val mytoken = new Token("rendering")
   private def trender(sig: Signal[_ <: Tree]): Tree = {
     def forallObs(t: Tree, func: Observer[_] => Unit): Unit = {
       if (t.obsid != null) func(t.obsid)
@@ -24,10 +25,10 @@ object Main {
       }
     }
     val medium = div(span("{{init}}"))
-    medium.obsid = sig.mkObserver({ newelem: Tree =>
+    medium.obsid = sig.observe({ newelem: Tree =>
       val fc = medium.children.head
-      forallObs(fc, _.deactivate())
-      forallObs(newelem, _.activate())
+      forallObs(fc, _.deactivate(mytoken))
+      forallObs(newelem, _.activate(mytoken))
       medium.children(0) = newelem
     })
     medium

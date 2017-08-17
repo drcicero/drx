@@ -10,56 +10,50 @@ import org.scalajs.dom
 
 object TodoApp extends js.JSApp {
 
-  def bodyContains(node: dom.Node) = dom.document.body.asInstanceOf[js.Dynamic].contains(node).asInstanceOf[Boolean]
+  def bodyContains(node: dom.Node): Boolean = dom.document.body.asInstanceOf[js.Dynamic].contains(node).asInstanceOf[Boolean]
+
+  private val mytoken = new Token("document.body")
 
   def replaceLastChild(medium: dom.Node, newelem: dom.Node): Unit = {
-    forallObs(medium)(_.deactivate())
+    forallObs(medium)(_.deactivate(mytoken))
     medium.replaceChild(newelem, medium.lastChild)
-    if (bodyContains(medium)) grouped( forallObs(medium)(_.activate()) )
+    if (bodyContains(medium)) forallObs(medium)(_.activate(mytoken))
   }
 
   implicit class SignalToElement(val sig: Signal[_ <: dom.html.Element]) extends AnyVal {
     def drender: dom.html.Element = {
       val medium = span(span("{{init}}")).render
-      val obs = sig.mkObserver { newelem: dom.Node =>
+      val obs = sig.observe { newelem: dom.Node =>
         replaceLastChild(medium, newelem) // last and only child
-        js.timers.setTimeout(100)(checkConsistency())
+//        js.timers.setTimeout(100)(checkConsistency())
       }
       medium.asInstanceOf[js.Dynamic].drxObserverReference = obs.asInstanceOf[js.Any]
       medium.setAttribute("data-has-obs", obs.id)
       medium
     }
   }
+
   private def forallObs(fc: dom.Node)(f: Observer[_] => Unit) = fc match {
     case fcq: dom.Element     =>
-      val list = fcq.querySelectorAll(":not(.well-hidden) [data-has-obs]")
+      val list = fcq.querySelectorAll("[data-has-obs]")
       (0 until list.length).foreach { i => f(getObs(list(i))) }
     case _ /* TextNode */ => Unit
   }
 
   def getObs(it: dom.Node): Observer[_] = it.asInstanceOf[js.Dynamic].drxObserverReference.asInstanceOf[Observer[_]]
 
-  // optionally, we could have type safe interfaces via weakmap
-//  @js.native @js.annotation.JSGlobal
-//  class WeakMap[Key <: js.Any, Value <: js.Any] extends js.Object {
-//    def delete(key: Key): Unit = js.native
-//    def has(key: Key): Boolean = js.native
-//    def get(key: Key): js.UndefOr[Value] = js.native
-//    def set(key: Key, value: Value): Unit = js.native
-//  }
-//  private val metadata = new WeakMap[dom.Node, drx.Observer[_]]()
-
   // for debugging / testing purposes
-  def checkConsistency(): Unit = {
-    val a: Set[Observer[_]] = collectAllObs()
-    val b: Set[Observer[_]] = drx.debug.transitivehullobservers(a)
-    if (a != b) println("mist: onlydom=" + (a -- b).map(_.id) + " | onlygraph=" + (b -- a).map(_.id))
-  }
+//  def checkConsistency(): Unit = {
+//    val a: Set[Observer[_]] = collectAllObs()
+//    val b: Set[Observer[_]] = drx.debug.transitivehullobservers(a)
+//    if (a != b) println("mist: onlydom=" + (a -- b).map(_.id) + " | onlygraph=" + (b -- a).map(_.id))
+//  }
+
   def collectAllObs(): Set[Observer[_]] = {
-    val list = dom.document.body.querySelectorAll(":not(.well-hidden) [data-has-obs]")
+    val list = dom.document.body.querySelectorAll("[data-has-obs]")
     val x: IndexedSeq[Observer[_]] = for (
       i <- 0 until list.length
-      if !list .apply(i).asInstanceOf[dom.html.Span].classList.contains("well-hidden")
+//      if !list .apply(i).asInstanceOf[dom.html.Span].classList.contains("well-hidden")
     ) yield getObs(list(i))
     x.toSet
   }
@@ -67,7 +61,7 @@ object TodoApp extends js.JSApp {
   override def main(): Unit = {
     grouped {
 
-      val color = new Var("red", "col")
+      val color = new Var("green", "col")
 
       def dview(task: Task): dom.Element = Signal(li(
         if (task.done.get) `class` := "task done" else `class` := "task",
@@ -77,7 +71,8 @@ object TodoApp extends js.JSApp {
         input(`class` := task.title.get,
           value := task.title.get,
           style := "color:" + color.get,
-          onchange := { ev: dom.Event => task.title.set(ev.target.asInstanceOf[dom.html.Input].value) })
+          onchange := { ev: dom.Event => task.title.set(ev.target.asInstanceOf[dom.html.Input].value) }),
+        task.folded.map(span(_).render).drender
       ).render).drender
 
       val model = new Var(List[Task](), "model")
@@ -93,8 +88,6 @@ object TodoApp extends js.JSApp {
       val mapped3 = model
         .map({ it => span(it.map { task => task.title.get.length }.sum).render }, "charsum")
 
-  //    mapped.onChange(println)
-
       val log = textarea(id:="log").render
 
       dom.document.body.appendChild(span("{{init}}").render)
@@ -102,15 +95,15 @@ object TodoApp extends js.JSApp {
 
         button("gen ten", onclick := { e: dom.Event =>
           for (i <- 0 to 10) model.transform( list => new Task("unique" + i) :: list)
-          log.value = drx.debug.stringit(collectAllObs())
+          log.value = drx.debug.stringit(collectAllObs().toSet)
         }),
         button("del ten", onclick := { e: dom.Event =>
           model.set( List[Task]() )
-          log.value = drx.debug.stringit(collectAllObs())
+          log.value = drx.debug.stringit(collectAllObs().toSet)
         }),
         button("paint", onclick := { e: dom.Event =>
-          checkConsistency()
-          log.value = drx.debug.stringit(collectAllObs())
+//          checkConsistency()
+          log.value = drx.debug.stringit(collectAllObs().toSet)
         }),
 
         br(),

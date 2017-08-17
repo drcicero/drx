@@ -7,4 +7,5 @@ import drx.{Signal, Var}
 class Task(title_ : String) {
   val title: Var[String] = new Var(title_, "t")
   val done: Var[Boolean] = new Var(false, "d")
+  val folded: Signal[Int] = title.fold(0)((x, y) => x + 1)
 }
