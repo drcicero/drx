@@ -21,8 +21,8 @@ lazy val todo = (project in file("todoapp"))
     scalaVersion := "2.12.2",
     scalaJSUseMainModuleInitializer := true,
     // mainClass in (Compile, run) := Some("TodoApp"),
-    libraryDependencies += "com.lihaoyi" %%% "scalatags" % "0.6.5"
-    // scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
+    libraryDependencies += "com.lihaoyi" %%% "scalatags" % "0.6.5",
+    scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
   )
 
 lazy val all = crossProject.in(file(".")).settings(
@@ -33,8 +33,8 @@ lazy val all = crossProject.in(file(".")).settings(
     scalaJSUseMainModuleInitializer := true,
     mainClass in (Compile, run) := Some("Main2"),
     libraryDependencies += "com.lihaoyi" %%% "scalatags" % "0.6.5",
-    jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv("node", List("--expose-gc"))
-    // scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
+    jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv("node", List("--expose-gc")),
+    scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
   )
   .jvmSettings(
     mainClass in (Compile, run) := Some("main.Main")

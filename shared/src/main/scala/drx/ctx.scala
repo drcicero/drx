@@ -4,14 +4,15 @@ import scala.collection.mutable
 import scala.util.DynamicVariable
 
 private object withContext {
+  private val activeCtx: DynamicVariable[Option[Ctx]] = new DynamicVariable(None)
   def apply[X](changer: (Ctx) => Unit): Unit = {
-    internals.activeCtx.value match {
+    activeCtx.value match {
       case Some(tx) => changer(tx)
       case None     =>
         val tx = new Ctx()
-        internals.activeCtx.withValue(Some(tx)) {
+        activeCtx.withValue(Some(tx)) {
           changer(tx)
-          tx.loop()
+          tx.processChanges()
         }
     }
   }
@@ -21,27 +22,26 @@ private[drx] case object RetryLater extends Throwable
 
 /** this context implements glitch-freeness */
 private class Ctx {
-  def markDirty(rx: Node[_]): Unit = rx match {
-    case (it: Token)      =>
-    case (it: Var[_])     => variables += it
-    case (it: Reactor[_]) => if (!levelQueue.contains(it)) levelQueue.offer(it)
-  }
+  def markVar(it: Variable[_]): Unit = variables += it
+  def markSig(it: DerivedValue[_]): Unit = if (!signalQueue.contains(it)) signalQueue.offer(it)
+  def markObs(it: () => Unit): Unit = observers += it
 
-  private val variables: mutable.Set[Var[_]] = mutable.Set()
-  private val levelQueue = new java.util.PriorityQueue[Reactor[_]](11, (x,y) => x.level - y.level)
+  private val variables: mutable.Set[Variable[_]] = mutable.Set()
+  private val signalQueue = new java.util.PriorityQueue[DerivedValue[_]](11, (x, y) => x.level - y.level)
+  private val observers: mutable.Set[() => Unit] = mutable.Set()
 
-  private[drx] def loop(): Unit = {
-    println("var " + variables.map(_.id))
-    variables.flatMap(_.getOuts).foreach(markDirty)
-    variables.clear()
-    var head: Reactor[_] = null
-    while ({head = levelQueue.poll; head != null}) {
-      val lvl = qts(levelQueue); println(head.level +" "+ head.id + " of " + lvl.map(_.level))
-      // reeval may throw RetryLater, or else it will return true if its value changed
+  private[drx] def processChanges(): Unit = {
+    println(variables, signalQueue, observers)
+    variables.flatMap(_.getOuts).foreach(markSig); variables.clear()
+    var head: DerivedValue[_] = null
+    while ({head = signalQueue.poll; head != null}) {
+      println(head.level +" "+ head.id + " of " + qts(signalQueue).map(_.level))
       head.reeval()
     }
     println()
-    if (variables.nonEmpty) loop()
+    if (variables.nonEmpty) ??? // variables may not be changed
+    observers.foreach(_()); observers.clear()
+    if (variables.nonEmpty || signalQueue.size() != 0) processChanges()
   }
 
   private def qts[T](queue: java.util.PriorityQueue[T]): Set[T] =

@@ -1,10 +1,10 @@
 package main
 
-import drx.{Signal, Var, Observer, Token}
+import drx.{Signal, Variable, Callback}
 
 /** Created by david on 10.06.17. */
 object Main {
-  private sealed abstract class Tree(var obsid: Observer[_] = null)
+  private sealed abstract class Tree(var obsid: Callback[_] = null)
   private case class Leaf(content: String) extends Tree
   private case class Ast(children: MList) extends Tree
   private type MList = scala.collection.mutable.ListBuffer[Tree]
@@ -15,9 +15,8 @@ object Main {
     case Ast(l) => l.foreach((x) => printTree(x, i+1))
   }
 
-  private val mytoken = new Token("rendering")
   private def trender(sig: Signal[_ <: Tree]): Tree = {
-    def forallObs(t: Tree, func: Observer[_] => Unit): Unit = {
+    def forallObs(t: Tree, func: Callback[_] => Unit): Unit = {
       if (t.obsid != null) func(t.obsid)
       t match {
         case Ast(c) => c.foreach(forallObs(_, func))
@@ -25,10 +24,10 @@ object Main {
       }
     }
     val medium = div(span("{{init}}"))
-    medium.obsid = sig.observe({ newelem: Tree =>
+    medium.obsid = sig.mkObs({ newelem: Tree =>
       val fc = medium.children.head
-      forallObs(fc, _.deactivate(mytoken))
-      forallObs(newelem, _.activate(mytoken))
+      forallObs(fc, _.stop())
+      forallObs(newelem, _.start())
       medium.children(0) = newelem
     })
     medium
@@ -46,7 +45,7 @@ object Main {
   }
 
   def partOfMain(): Unit = {
-    val model = new Var(List[Task](), "model")
+    val model = new Variable(List[Task](), "model")
     val mapped = model
       .map({ it => it.length }, "length")
       .map({ it => if (it == 0) "No" else ""+it }, "string")

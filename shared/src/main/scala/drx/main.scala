@@ -8,111 +8,124 @@ object grouped {
   def apply[X](changer: => Unit): Unit = withContext { _ => changer }
 }
 
-sealed abstract class Node[X] private[drx](name: String) {
+sealed abstract class GraphNode[X] private[drx](name: String) {
   debug.debugRxs(this) = Unit
+
   val id: String = "" + internals.count + name
 
   private[drx] var level: Int = 0
-  private def maxOrZero(lst: TraversableOnce[Int]) = try lst.max catch { case _: UnsupportedOperationException => 0 }
-
-  private val outs: mutable.Set[Node[_]] = mutable.Set()
-  private[drx] def getOuts: TraversableOnce[Node[_]] = outs
+  private[drx] val outs: mutable.Set[DerivedValue[_]] = mutable.Set()
+  private[drx] val ins: mutable.Set[GraphNode[_]] = mutable.Set()
   private[drx] def calcActive: Boolean = outs.nonEmpty
-  private[drx] def delOut(sig: Node[_]): Unit = {
-    if (!outs.contains(sig)) throw new RuntimeException("redundant delOut from " + this.id + " to "+ sig.id)
-    println("  delout " + id + "-= " + sig.id)
+  private[drx] def getOuts: Set[DerivedValue[_]] = outs.toSet
+  private[drx] def unsubscribe(sig: DerivedValue[_]): Unit = {
+    if (!outs.contains(sig)) throw new RuntimeException("redundant unsubscribe from " + this.id + " to "+ sig.id)
+    else println("  unsubscribe from " +this.id+" to "+sig.id)
     outs -= sig
-    if (!calcActive) ins.foreach(_.delOut(this))
   }
 
-  private[drx] val ins: mutable.Set[Node[_]] = mutable.Set()
-  private[drx] def linkWith(to: Node[_]): Boolean = {
-//    if (this.outs.contains(to)) throw new RuntimeException("redundant addOut from " + this.id + " to "+ to.id)
-
+  private def maxOrZero(lst: TraversableOnce[Int]) = try lst.max catch { case _: UnsupportedOperationException => 0 }
+  private[drx] def linkWith(to: DerivedValue[_])(ifneedsreevaluation: => Unit): Unit = {
     to.ins += this
     val newLevel = maxOrZero(to.ins.map(_.level)) + 1
     val levelup = newLevel > to.level
     if (levelup) to.level = newLevel
 
     val wasActive = this.calcActive
+    if (!this.outs.contains(to)) println("  subscribe from "+this.id +" to "+to.id)
     this.outs += to
 
-    levelup || !wasActive || value.isEmpty
+    if (levelup || !wasActive || value.isEmpty) ifneedsreevaluation
   }
-  private[drx] def setupPushTo(to: Node[_]): Unit = {
-    println("  " + id + " pushTo " + to.id)
-    if (linkWith(to)) { withContext(_.markDirty(this)); throw RetryLater }
-  }
-
+  private[drx] def subscribe(to: DerivedValue[_]): Unit
   private[drx] var value: Option[X] = None
 
   // private[drx] val dummy = Array.tabulate(1000 * 100)( i => i )
 }
 
-sealed trait Reactive[X] extends Node[X] {
+sealed trait Stream[X] extends GraphNode[X] {
   def now: X = value.get
-  def get: X = {
-    setupPushTo(internals.activeSig.value.get)
-    value.get // OrElse(throw new RuntimeException("Signal " + id + " is empty :(, running " + to.id))
-  }
+  def get: X = { subscribe(internals.activeSig.value.get); value.get }
   def map[Y](func: X => Y, name: String = ""): Signal[Y] = Signal( func(get), name )
-  def observe(callback: X => Unit): Observer[X] = new Observer(this, callback)
   def fold[Y](init: Y)(comb: (Y, X) => Y): Signal[Y] = {
-    // TODO could activate folds without token...
+    val that = this
     var tmp: Y = init
-    val result = new Signal[Y]({ () => println("fold " + id); tmp = comb(tmp, get); tmp }, "fold" + id) with Interesting[Y]
-    result.activate(internals.foldtoken)
+    val result = new Signal[Y]({ () => tmp = comb(tmp, get); tmp }, "fold") with Startable[Y] { override def parent: Stream[X] = that }
+    result.start()
     result
+  }
+  /** you can register a callback via [[foreach]], that starts immediately. */
+  def mkObs(callback: X => Unit): Callback[X] = new Callback(this, callback)
+  /** you can create a callback via [[mkObs]], that is deactive at the beginning and can be started later. */
+  def foreach(callback: X => Unit): Callback[X] = {
+    val tmp = new Callback(this, callback)
+    tmp.start()
+    tmp
   }
 }
 
-private[drx] sealed trait Reactor[X] extends Node[X] {
+sealed trait DerivedValue[X] extends GraphNode[X] {
+  override private[drx] def unsubscribe(sig: DerivedValue[_]) = { super.unsubscribe(sig); checkStillActive() }
+  override private[drx] def subscribe(to: DerivedValue[_]): Unit =
+    linkWith(to) { withContext(_.markSig(this)); throw RetryLater }
+  private[drx] def checkStillActive() = if (!calcActive) ins.foreach(_.unsubscribe(this))
   private[drx] val formula: () => X
   private[drx] def reeval(): Unit = {
     if (!calcActive) return // throw new RuntimeException("should not reeval inactive signal " + id)
-    println(s"  $id : ${ins.map(_.id)} -> ${getOuts.map(_.id).toSet}")
     val tmpIn = Set() ++ ins; ins.clear()
     Try(internals.activeSig.withValue(Some(this)) { formula() }) match {
       case Success(v) =>
-        (tmpIn -- ins).foreach(_.delOut(this))
-        if (v != value) withContext(tx => getOuts.foreach(tx.markDirty))
+        (tmpIn -- ins).foreach(_.unsubscribe(this))
+        if (v != value) withContext(tx => getOuts.foreach(tx.markSig))
         value = Some(v)
       case Failure(exc) =>
-        ins ++= tmpIn
+        // ins ++= tmpIn
+        if (exc != RetryLater) throw exc
     }
   }
 }
 
-sealed trait Interesting[X] extends Node[X] {
-  def deactivate(tok: Token): Unit = { println("  deac " + id); tok.ins -= this; this.delOut(tok) }
-  def activate(tok: Token): Unit = if (linkWith(tok)) withContext(_.markDirty(this))
-  def activate(): Token = { val token = new Token(""); activate(token); token }
-}
-
-sealed class Var[X](init: X, name: String = "") extends Node[X](name) with Reactive[X] {
+sealed class Variable[X](init: X, name: String = "") extends GraphNode[X](name) with Stream[X] {
   value = Some(init)
-  def set(newValue: X): Unit = { println(s"set $id ${value.get} to $newValue"); value = Some(newValue); withContext(_.markDirty(this)) }
+  def set(newValue: X): Unit = { println(s"set $id ${value.get} to $newValue"); value = Some(newValue); withContext(_.markVar(this)) }
   def transform(transformer: X => X): Unit = set(transformer(value.get))
-  private[drx] override def setupPushTo(to: Node[_]): Unit = linkWith(to)
+  override private[drx] def subscribe(to: DerivedValue[_]): Unit = linkWith(to) {}
   override def toString: String = "Var(" + this.value.toString + ")"
-}
 
-sealed class Token(name: String) extends Node[Unit](name)
+  private var frozen = true
+  def isFrozen: Boolean = frozen
+  def freeze(): Unit = frozen = true
+}
 
 /** create using [[Signal.apply]] */
-sealed class Signal[X] private[drx] (private[drx] val formula: () => X, name: String) extends Node[X](name) with Reactor[X] with Reactive[X]
+sealed class Signal[X] private[drx] (private[drx] val formula: () => X, name: String) extends GraphNode[X](name) with DerivedValue[X] with Stream[X]
 object Signal { def apply[X](formula: => X, name: String = ""): Signal[X] = new Signal(formula _, name) }
 
-/** create using [[Reactive.observe]] */
-sealed class Observer[X] private[drx](parent: Reactive[X], callback: X => Unit) extends Node[Unit]("obs") with Reactor[Unit] with Interesting[Unit] {
-  private[drx] val formula = () => callback(parent.get)
-  level = Int.MaxValue
+/** create using [[Stream.mkObs]] */
+sealed class Callback[X] private[drx](private[drx] val parent: Stream[X], callback: X => Unit) extends GraphNode[Unit]("obs") with DerivedValue[Unit] with Startable[Unit] {
+  private[drx] val formula = () => { val tmp = parent.get; withContext(_.markObs{() => callback(tmp)}) }
+  level = Int.MaxValue // run as late as possible
+}
+
+sealed trait Startable[X] { self: DerivedValue[X] =>
+  var active = false
+  override private[drx] def calcActive = active
+  def start(): Unit = if (!active) {
+    active = true
+    withContext { tx =>
+      try parent.subscribe(this)
+      catch { case RetryLater =>
+//        println("retrylater " + this.id + " " + parent.id)
+//        tx.markSig(this)
+      }
+    }
+  }
+  def stop(): Unit = if (active) { active = false; parent.unsubscribe(this) }
+  private[drx] def parent: Stream[_]
 }
 
 private object internals {
   private var uniqueCtr = 0
   def count: Int = { uniqueCtr += 1; uniqueCtr }
-  val activeCtx: DynamicVariable[Option[Ctx]] = new DynamicVariable(None)
-  val activeSig: DynamicVariable[Option[Reactor[_]]] = new DynamicVariable(None)
-  val foldtoken = new Token("foldtoken")
+  val activeSig: DynamicVariable[Option[DerivedValue[_]]] = new DynamicVariable(None)
 }

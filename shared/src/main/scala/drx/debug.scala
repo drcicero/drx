@@ -13,7 +13,7 @@ object debug {
     def size = 0
   }
 
-  private[drx] val debugRxs = compat2.compat2.PotentialWeakHashMap[Node[_], Unit]()
+  private[drx] val debugRxs = compat2.compat2.PotentialWeakHashMap[GraphNode[_], Unit]()
 
   def printless(): Unit = {
     println(compat2.compat2.heapSize())
@@ -28,9 +28,9 @@ object debug {
   }
 
   def serialize(x: Any): String = x match {
-    case None       => "none"
-    case Some(y)    => serialize(y)
-    case x: Node[_] => x.id
+    case None            => "none"
+    case Some(y)         => serialize(y)
+    case x: GraphNode[_] => x.id
     // case x: Node => x.outerHTML.replace('"', "'")
     case x: mutable.Map[_, _]      =>
       "{" + x.map {
@@ -41,14 +41,14 @@ object debug {
     case _ => "" + x
   }
 
-  def getthem(rx: Node[_], acc: mutable.Set[Node[_]]): Unit = if (!acc.contains(rx)) {
+  def getthem(rx: GraphNode[_], acc: mutable.Set[GraphNode[_]]): Unit = if (!acc.contains(rx)) {
     acc += rx
     rx.ins.foreach { y => getthem(y, acc) }
     rx.getOuts.foreach { y => getthem(y, acc) }
   }
 
-  def transitivehull(xs: Set[Node[_]]): Set[Node[_]] = {
-    val set = mutable.Set[Node[_]]()
+  def transitivehull(xs: Set[GraphNode[_]]): Set[GraphNode[_]] = {
+    val set = mutable.Set[GraphNode[_]]()
     xs.foreach(getthem(_, set))
     set.toSet
   }
@@ -59,28 +59,35 @@ object debug {
 //    set.flatMap(_.getOuts).collect { case (x:Observer[_]) => x }.toSet
 //  }
 
-  def stringit(root: Set[Node[_]] = Set()): String = {
+  def stringit(root: Set[GraphNode[_]] = Set()): String = {
 
     val sigs = transitivehull(root ++ debugRxs.keys)
 
-    def color(rx: Node[_]): String = rx match {
-      case _: Var[_]      => "#00aadd"
-      case _: Token       => "#ddaa00"
-      case it: Reactor[_] => if (it.calcActive) "#aadd00" else "silver"
+    def color(rx: GraphNode[_]): String = rx match {
+      case _: Variable[_]      => "fillcolor=\"#00aadd\",shape=invtriangle"
+      case it: Callback[_]     => "fillcolor=\"" + (if (it.calcActive) "#ddaa00" else "silver") +"\",shape=triangle"
+      case it: DerivedValue[_] => if (!it.calcActive) "fillcolor=silver,shape=diamond"
+      else if (it.getOuts.isEmpty) "fillcolor=\"red\",shape=diamond" else "fillcolor=\"#aadd00\",shape=diamond"
     }
 
     ("digraph {\n" +
 
       sigs.map {it => (
 
-        s"""  "${it.id}" [style=filled,fillcolor="${color(it)}",tooltip="${serialize(it.value)}"]\n""" +
+        s"""  "${it.id}" [style=filled,${color(it)},tooltip="${serialize(it.value)}",fixedsize=shape]\n""" +
 
-          it.ins.filter(!_.getOuts.toSet.contains(it)).map {
-            dep => s"""  "${dep.id }" -> "${it.id }" [color=silver dir=back]"""
-          }.mkString("\n") +
+          (it match {
+            case it: DerivedValue[_] =>
+              it.ins
+//                .filter { dep => !dep.getOuts.contains(it) }
+                .map { dep =>
+                s"""  "${dep.id}" -> "${it.id}" [color=silver dir=back]"""
+              }.mkString("\n")
+            case _ => ""
+          }) +
 
-          it.getOuts.map {
-            child => s"""  "${it.id }" -> "${child.id }" [dir=both]"""
+          it.getOuts.map { child =>
+            s"""  "${it.id}" -> "${child.id}" []"""
           }.mkString("\n") +
 
           "\n"

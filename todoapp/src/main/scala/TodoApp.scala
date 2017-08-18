@@ -10,58 +10,49 @@ import org.scalajs.dom
 
 object TodoApp extends js.JSApp {
 
+  private val DATA_IS_REACTIVE = "data-is-reactive"
+
+  def getObs(it: dom.Node): Callback[_] = it.asInstanceOf[js.Dynamic].drxObserverReference.asInstanceOf[Callback[_]]
+  def setObs(it: dom.Node, obs: Callback[_]): Unit = it.asInstanceOf[js.Dynamic].drxObserverReference = obs.asInstanceOf[js.Any]
   def bodyContains(node: dom.Node): Boolean = dom.document.body.asInstanceOf[js.Dynamic].contains(node).asInstanceOf[Boolean]
-
-  private val mytoken = new Token("document.body")
-
-  def replaceLastChild(medium: dom.Node, newelem: dom.Node): Unit = {
-    forallObs(medium)(_.deactivate(mytoken))
+  def replaceLastChild(medium: dom.Element, newelem: dom.Element): Unit = {
+    foreachObs(medium)(_.stop())
     medium.replaceChild(newelem, medium.lastChild)
-    if (bodyContains(medium)) forallObs(medium)(_.activate(mytoken))
+    if (bodyContains(medium)) foreachObs(medium)(_.start())
   }
-
+  private def foreachObs(fc: dom.Element)(f: Callback[_] => Unit) = {
+    val list = fc.querySelectorAll("["+DATA_IS_REACTIVE+"]")
+    (0 until list.length).foreach { i => f(getObs(list(i))) }
+  }
   implicit class SignalToElement(val sig: Signal[_ <: dom.html.Element]) extends AnyVal {
     def drender: dom.html.Element = {
       val medium = span(span("{{init}}")).render
-      val obs = sig.observe { newelem: dom.Node =>
+      val startObs: Callback[_] = sig.mkObs { newelem =>
         replaceLastChild(medium, newelem) // last and only child
 //        js.timers.setTimeout(100)(checkConsistency())
       }
-      medium.asInstanceOf[js.Dynamic].drxObserverReference = obs.asInstanceOf[js.Any]
-      medium.setAttribute("data-has-obs", obs.id)
+      setObs(medium, startObs)
+      medium.setAttribute(DATA_IS_REACTIVE, "true")
       medium
     }
   }
 
-  private def forallObs(fc: dom.Node)(f: Observer[_] => Unit) = fc match {
-    case fcq: dom.Element     =>
-      val list = fcq.querySelectorAll("[data-has-obs]")
-      (0 until list.length).foreach { i => f(getObs(list(i))) }
-    case _ /* TextNode */ => Unit
-  }
-
-  def getObs(it: dom.Node): Observer[_] = it.asInstanceOf[js.Dynamic].drxObserverReference.asInstanceOf[Observer[_]]
-
-  // for debugging / testing purposes
+// for debugging / testing purposes
 //  def checkConsistency(): Unit = {
 //    val a: Set[Observer[_]] = collectAllObs()
 //    val b: Set[Observer[_]] = drx.debug.transitivehullobservers(a)
 //    if (a != b) println("mist: onlydom=" + (a -- b).map(_.id) + " | onlygraph=" + (b -- a).map(_.id))
 //  }
 
-  def collectAllObs(): Set[Observer[_]] = {
-    val list = dom.document.body.querySelectorAll("[data-has-obs]")
-    val x: IndexedSeq[Observer[_]] = for (
-      i <- 0 until list.length
-//      if !list .apply(i).asInstanceOf[dom.html.Span].classList.contains("well-hidden")
-    ) yield getObs(list(i))
-    x.toSet
+  def collectAllObs(): Set[Callback[_]] = {
+    val list = dom.document.body.querySelectorAll("["+DATA_IS_REACTIVE+"]")
+    (for (i <- 0 until list.length) yield getObs(list(i))).toSet[Callback[_]]
   }
 
   override def main(): Unit = {
     grouped {
 
-      val color = new Var("green", "col")
+      val color = new Variable("green", "col")
 
       def dview(task: Task): dom.Element = Signal(li(
         if (task.done.get) `class` := "task done" else `class` := "task",
@@ -75,18 +66,11 @@ object TodoApp extends js.JSApp {
         task.folded.map(span(_).render).drender
       ).render).drender
 
-      val model = new Var(List[Task](), "model")
-
-      val mapped = model
+      val model = new Variable(List[Task](), "model")
+      val mapped2 = model
         .map({ it => it.count(!_.done.get) }, "notdone")
-        .map({ it => if (it == 0) "no" else ""+it }, "string")
-
-      val mapped2 = mapped
-        .map({ it => span(it) }, "span")
-        .map({ it => it.render }, "render")
-
-      val mapped3 = model
-        .map({ it => span(it.map { task => task.title.get.length }.sum).render }, "charsum")
+        .map({ it => span(if (it == 0) "no" else ""+it).render }, "string")
+      val mapped3 = model.map({ it => span(it.map { task => task.title.get.length }.sum).render }, "charsum")
 
       val log = textarea(id:="log").render
 
