@@ -66,7 +66,9 @@ object TodoApp extends js.JSApp {
         task.folded.map(span(_).render).drender
       ).render).drender
 
-      val model = new Variable(List[Task](), "model")
+      val model = new Store((name: String) => new Task(name), "model")
+//      val model = new Variable(List[Task](), "model")
+
       val mapped2 = model
         .map({ it => it.count(!_.done.get) }, "notdone")
         .map({ it => span(if (it == 0) "no" else ""+it).render }, "string")
@@ -78,11 +80,13 @@ object TodoApp extends js.JSApp {
       replaceLastChild(dom.document.body, div(
 
         button("gen ten", onclick := { e: dom.Event =>
-          for (i <- 0 to 10) model.transform( list => new Task("unique" + i) :: list)
+          for (i <- 0 to 10) model.create( "unique" + i)
+//          for (i <- 0 to 10) model.transform( list => new Task("unique" + i) :: list)
           log.value = drx.debug.stringit(collectAllObs().toSet)
         }),
         button("del ten", onclick := { e: dom.Event =>
-          model.set( List[Task]() )
+          grouped { model.now.foreach(model.kill) }
+//          model.set( List[Task]() )
           log.value = drx.debug.stringit(collectAllObs().toSet)
         }),
         button("paint", onclick := { e: dom.Event =>
@@ -97,7 +101,8 @@ object TodoApp extends js.JSApp {
 
         form(input(placeholder:= "enter new task here"), onsubmit := { ev: dom.Event => ev.preventDefault()
           val input = ev.target.asInstanceOf[dom.Element].children(0).asInstanceOf[dom.html.Input]
-          model.transform { model => model ++ List(new Task(input.value)) }
+          model.create(input.value)
+//          model.transform { model => new Task(input.value) :: model }
           input.value = ""
         }),
 
@@ -105,7 +110,8 @@ object TodoApp extends js.JSApp {
           if (model.get.isEmpty)
             div(`class` := "info", "All done! :)").render
           else
-            Signal(ul(model.get.map(dview)).render, "ul").drender
+            Signal(ul(model.get.map(dview).toList).render, "ul").drender
+//            Signal(ul(model.get.map(dview)).render, "ul").drender
         , "tasklist").drender,
 
         Signal(
@@ -115,7 +121,8 @@ object TodoApp extends js.JSApp {
             `type`:="button",
             value:= "remove all done todos",
             onclick:= { () =>
-              model.transform( it => it.filter(item => !item.done.now))
+              model.now.filter(item => item.done.now).foreach(model.kill)
+//              model.transform( it => it.filter(item => !item.done.now))
             }
           ).render
         ,"button").drender,

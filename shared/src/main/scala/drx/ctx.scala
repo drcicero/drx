@@ -22,11 +22,11 @@ private[drx] case object RetryLater extends Throwable
 
 /** this context implements glitch-freeness */
 private class Ctx {
-  def markVar(it: Variable[_]): Unit = variables += it
+  def markVar(it: EventSource[_]): Unit = variables += it
   def markSig(it: DerivedValue[_]): Unit = if (!signalQueue.contains(it)) signalQueue.offer(it)
   def markObs(it: () => Unit): Unit = observers += it
 
-  private val variables: mutable.Set[Variable[_]] = mutable.Set()
+  private val variables: mutable.Set[EventSource[_]] = mutable.Set()
   private val signalQueue = new java.util.PriorityQueue[DerivedValue[_]](11, (x, y) => x.level - y.level)
   private val observers: mutable.Set[() => Unit] = mutable.Set()
 

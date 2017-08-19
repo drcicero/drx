@@ -28,8 +28,8 @@ object debug {
   }
 
   def serialize(x: Any): String = x match {
-    case None            => "none"
-    case Some(y)         => serialize(y)
+    case None               => "none"
+    case Some(y)            => serialize(y)
     case x: GraphNode[_] => x.id
     // case x: Node => x.outerHTML.replace('"', "'")
     case x: mutable.Map[_, _]      =>
@@ -63,12 +63,12 @@ object debug {
 
     val sigs = transitivehull(root ++ debugRxs.keys)
 
-    def color(rx: GraphNode[_]): String = rx match {
-      case _: Variable[_]      => "fillcolor=\"#00aadd\",shape=invtriangle"
-      case it: Callback[_]     => "fillcolor=\"" + (if (it.calcActive) "#ddaa00" else "silver") +"\",shape=triangle"
-      case it: DerivedValue[_] => if (!it.calcActive) "fillcolor=silver,shape=diamond"
+    def color(rx: GraphNode[_]): String = (rx match {
+      case it: EventSource[_]  => "fillcolor=\"#00aadd\",shape=invtriangle"
+      case it: Callback[_]     => "fillcolor=\"" + (if (it.isNeeded) "#ddaa00" else "silver") +"\",shape=triangle"
+      case it: DerivedValue[_] => if (!it.isNeeded) "fillcolor=silver,shape=diamond"
       else if (it.getOuts.isEmpty) "fillcolor=\"red\",shape=diamond" else "fillcolor=\"#aadd00\",shape=diamond"
-    }
+    }) + ",color=\"" + (if(rx.frozen) "blue" else "white") + "\""
 
     ("digraph {\n" +
 
@@ -79,7 +79,7 @@ object debug {
           (it match {
             case it: DerivedValue[_] =>
               it.ins
-//                .filter { dep => !dep.getOuts.contains(it) }
+                .filter { dep => !dep.getOuts.contains(it) }
                 .map { dep =>
                 s"""  "${dep.id}" -> "${it.id}" [color=silver dir=back]"""
               }.mkString("\n")
@@ -87,8 +87,16 @@ object debug {
           }) +
 
           it.getOuts.map { child =>
-            s"""  "${it.id}" -> "${child.id}" []"""
+            s"""  "${it.id}" -> "${child.id}" [dir=both]"""
           }.mkString("\n") +
+
+          (it match {
+            case it: Store[_,_] =>
+              it.now.flatMap(_.getVariables).map { child =>
+                s"""  "${it.id}" -> "${child.id}" [color=aqua]"""
+              }.mkString("\n")
+            case _ => ""
+          })+
 
           "\n"
 
