@@ -1,6 +1,6 @@
 package main
 
-import drx.{Signal, Variable, Callback}
+import drx.{Callback, Signal, VarOwner, Variable}
 
 /** Created by david on 10.06.17. */
 object Main {
@@ -45,8 +45,11 @@ object Main {
   }
 
   def partOfMain(): Unit = {
-    val model = new Variable(List[Task](), "model")
-    val mapped = model
+    object state extends VarOwner {
+      val model: Variable[List[Task]] = mkVar(List(), "model")
+    }
+
+    val mapped = state.model
       .map({ it => it.length }, "length")
       .map({ it => if (it == 0) "No" else ""+it }, "string")
       .map({ it => span(it) }, "span")
@@ -56,20 +59,20 @@ object Main {
       div(span("There are "), trender(mapped), span(" todos left")),
 
       trender(Signal(
-        if (model.get.isEmpty)
+        if (state.model.get.isEmpty)
           span("All done! :)")
         else
-          trender(Signal(div(model.get.map { it => tview(it) }:_*)))
+          trender(Signal(div(state.model.get.map { it => tview(it) }:_*)))
       ))
     )
 
     drx.debug.doit()
 
     for (x <- 1 to 3) {
-      for (x <- 1 to 20) model.transform(x => x ++ List(new Task("hello")))
+      for (x <- 1 to 20) state.model.transform(x => x ++ List(new Task("hello")))
       drx.debug.doit()
 
-      for (x <- 1 to 20) model.transform(_.tail)
+      for (x <- 1 to 20) state.model.transform(_.tail)
       drx.debug.doit()
     }
 

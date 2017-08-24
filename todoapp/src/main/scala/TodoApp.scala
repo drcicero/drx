@@ -24,7 +24,7 @@ object TodoApp extends js.JSApp {
     val list = fc.querySelectorAll("["+DATA_IS_REACTIVE+"]")
     (0 until list.length).foreach { i => f(getObs(list(i))) }
   }
-  implicit class SignalToElement(val sig: Signal[_ <: dom.html.Element]) extends AnyVal {
+  implicit class SignalToElement(val sig: DynamicSignal[_ <: dom.html.Element]) extends AnyVal {
     def drender: dom.html.Element = {
       val medium = span(span("{{init}}")).render
       val startObs: Callback[_] = sig.mkObs { newelem =>
@@ -51,8 +51,10 @@ object TodoApp extends js.JSApp {
 
   override def main(): Unit = {
     grouped {
-
-      val color = new Variable("green", "col")
+      object state extends VarOwner {
+        val todoTextColor: Variable[String] = mkVar("green", "col")
+        val model: Store[Task, String] = mkStore((name: String) => new Task(name), "model")
+      }
 
       def dview(task: Task): dom.Element = Signal(li(
         if (task.done.get) `class` := "task done" else `class` := "task",
@@ -61,18 +63,17 @@ object TodoApp extends js.JSApp {
           onchange := { ev: dom.Event => task.done.transform { it => !it } }),
         input(`class` := task.title.get,
           value := task.title.get,
-          style := "color:" + color.get,
+          style := "color:" + state.todoTextColor.get,
           onchange := { ev: dom.Event => task.title.set(ev.target.asInstanceOf[dom.html.Input].value) }),
         task.folded.map(span(_).render).drender
       ).render).drender
 
-      val model = new Store((name: String) => new Task(name), "model")
 //      val model = new Variable(List[Task](), "model")
 
-      val mapped2 = model
+      val mapped2 = state.model
         .map({ it => it.count(!_.done.get) }, "notdone")
         .map({ it => span(if (it == 0) "no" else ""+it).render }, "string")
-      val mapped3 = model.map({ it => span(it.map { task => task.title.get.length }.sum).render }, "charsum")
+      val mapped3 = state.model.map({ it => span(it.map { task => task.title.get.length }.sum).render }, "charsum")
 
       val log = textarea(id:="log").render
 
@@ -80,12 +81,12 @@ object TodoApp extends js.JSApp {
       replaceLastChild(dom.document.body, div(
 
         button("gen ten", onclick := { e: dom.Event =>
-          for (i <- 0 to 10) model.create( "unique" + i)
+          for (i <- 0 to 10) state.model.create( "unique" + i)
 //          for (i <- 0 to 10) model.transform( list => new Task("unique" + i) :: list)
           log.value = drx.debug.stringit(collectAllObs().toSet)
         }),
         button("del ten", onclick := { e: dom.Event =>
-          grouped { model.now.foreach(model.kill) }
+          grouped { state.model.now.foreach(state.model.kill) }
 //          model.set( List[Task]() )
           log.value = drx.debug.stringit(collectAllObs().toSet)
         }),
@@ -101,27 +102,27 @@ object TodoApp extends js.JSApp {
 
         form(input(placeholder:= "enter new task here"), onsubmit := { ev: dom.Event => ev.preventDefault()
           val input = ev.target.asInstanceOf[dom.Element].children(0).asInstanceOf[dom.html.Input]
-          model.create(input.value)
+          state.model.create(input.value)
 //          model.transform { model => new Task(input.value) :: model }
           input.value = ""
         }),
 
         Signal(
-          if (model.get.isEmpty)
+          if (state.model.get.isEmpty)
             div(`class` := "info", "All done! :)").render
           else
-            Signal(ul(model.get.map(dview).toList).render, "ul").drender
+            Signal(ul(state.model.get.map(dview).toList).render, "ul").drender
 //            Signal(ul(model.get.map(dview)).render, "ul").drender
         , "tasklist").drender,
 
         Signal(
-          if (model.get.isEmpty)
+          if (state.model.get.isEmpty)
             br().render
           else input(
             `type`:="button",
             value:= "remove all done todos",
             onclick:= { () =>
-              model.now.filter(item => item.done.now).foreach(model.kill)
+              state.model.now.filter(item => item.done.now).foreach(state.model.kill)
 //              model.transform( it => it.filter(item => !item.done.now))
             }
           ).render

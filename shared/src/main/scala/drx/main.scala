@@ -32,14 +32,15 @@ sealed abstract class GraphNode[X] private[drx](name: String) {
 
   private def maxOrZero(lst: TraversableOnce[Int]) = try lst.max catch { case _: UnsupportedOperationException => 0 }
   private[drx] def linkWith(to: DerivedValue[_])(ifneedsreevaluation: => Unit): Unit = {
+    if (!this.outs.contains(to)) println("  subscribe from "+this.id +" to "+to.id)
+
+    val wasActive = this.isNeeded
+    this.outs += to
+
     to.ins += this
     val newLevel = maxOrZero(to.ins.map(_.level)) + 1
     val levelup = newLevel > to.level
-    if (levelup) to.level = newLevel
-
-    val wasActive = this.isNeeded
-    if (!this.outs.contains(to)) println("  subscribe from "+this.id +" to "+to.id)
-    this.outs += to
+    if (levelup) to.levelup(newLevel)
 
     if (levelup || !wasActive || value.isEmpty) ifneedsreevaluation
   }
@@ -49,15 +50,16 @@ sealed abstract class GraphNode[X] private[drx](name: String) {
   // private[drx] val dummy = Array.tabulate(1000 * 100)( i => i )
 }
 
-sealed trait Stream[X] extends GraphNode[X] {
+sealed trait Signal[X] extends GraphNode[X] {
   def now: X = value.get
   def get: X = { subscribe(internals.activeSig.value.get); now }
-  def map[Y](func: X => Y, name: String = ""): Signal[Y] = Signal( func(get), name )
-  def fold[Y](init: Y)(comb: (Y, X) => Y): Signal[Y] = {
+  def map[Y](func: X => Y, name: String = ""): DynamicSignal[Y] = Signal( func(get), name )
+  def fold[Y](init: Y, owner: VarOwnerLike = internals.dummyOwner)(comb: (Y, X) => Y): DynamicSignal[Y] = {
     val that = this
     var tmp: Y = init
-    val result = new Signal[Y]({ () => tmp = comb(tmp, get); tmp }, "fold") with Startable[Y] { override def parent: Stream[X] = that }
+    val result = new DynamicSignal[Y]({ () => tmp = comb(tmp, get); tmp }, "fold") with Startable[Y] { override def parent: Signal[X] = that }
     result.start()
+    checksafety(owner)
     result
   }
   /** you can register a callback via [[foreach]], that starts immediately. */
@@ -68,9 +70,28 @@ sealed trait Stream[X] extends GraphNode[X] {
     tmp.start()
     tmp
   }
+
+  private def checksafety(owner: VarOwnerLike) = {
+    val ancestry: mutable.Set[GraphNode[_]] = mutable.Set()
+    def transitiveIns(it: GraphNode[_]): Unit = {
+      if (ancestry.add(it)) it.ins.foreach(transitiveIns)
+    }
+    transitiveIns(this)
+    val vars = ancestry.collect { case it: Variable[_] => it }
+    if (vars.size > 1 && !vars.subsetOf(owner.getVariables.toSet))
+      throw new RuntimeException("You are creating a fold over multiple variables." +
+        " The fold will live until all incoming variables are dead.." +
+        " You must specify the VarOwner of all Variables that influence this fold." +
+        " for example like: a = owner.mkVar(); b = owner.mkVar() _.fold(0, owner)(_+_) ." +
+        " The fold will be then be collected when this VarOwner is collected.")
+  }
 }
 
 sealed trait DerivedValue[X] extends GraphNode[X] {
+  private[drx] def levelup(newLevel: Int): Unit = {
+    level = newLevel
+    outs.foreach(_.levelup(newLevel + 1))
+  }
   private[drx] override def freeze() = formula = () => value.get
   override private[drx] def unsubscribe(sig: DerivedValue[_]) = { super.unsubscribe(sig); checkStillActive() }
   override private[drx] def subscribe(to: DerivedValue[_]): Unit =
@@ -93,13 +114,30 @@ sealed trait DerivedValue[X] extends GraphNode[X] {
   }
 }
 
-trait EventSource[X] extends Stream[X]
+trait EventSource[X] extends Signal[X]
 
-trait VariableLike {
-  def getVariables: Seq[Variable[_]]
+trait VarOwnerLike {
+  private[drx] def getVariables: Set[Variable[_]]
 }
-sealed class Store[X <: VariableLike, CtorArgs](ctor : CtorArgs => X, name: String = "")
-  extends GraphNode[Set[X]](name) with EventSource[Set[X]] {
+
+trait VarOwner extends VarOwnerLike {
+  protected val children: mutable.Set[VarOwnerLike] = mutable.Set()
+  def mkVar[X](init: X, name: String = ""): Variable[X] = {
+    val result = new Variable(init, name)
+    children += result
+    result
+  }
+  def mkStore[X <: VarOwnerLike, CtorArgs](ctor : CtorArgs => X, name: String = ""): Store[X, CtorArgs] = {
+    val result = new Store(ctor, name)
+    children += result
+    result
+  }
+  private[drx] def getVariables: Set[Variable[_]] = children.toSet[VarOwnerLike].flatMap(_.getVariables)
+}
+
+/** create using [[VarOwner.mkStore]] */
+sealed class Store[X <: VarOwnerLike, CtorArgs] private[drx](ctor : CtorArgs => X, name: String = "")
+  extends GraphNode[Set[X]](name) with EventSource[Set[X]] with VarOwnerLike {
   value = Some(Set[X]())
   override private[drx] def subscribe(to: DerivedValue[_]): Unit = linkWith(to) {}
   def create(args: CtorArgs, name: String = ""): X = {
@@ -113,39 +151,47 @@ sealed class Store[X <: VariableLike, CtorArgs](ctor : CtorArgs => X, name: Stri
     vari.getVariables.foreach(_.freeze())
     withContext(_.markVar(this))
   }
+  private[drx] def getVariables: Set[Variable[_]] = value.get.toSet[VarOwnerLike].flatMap(_.getVariables)
 }
 
-sealed class Variable[X](init: X, name: String = "") extends GraphNode[X](name) with EventSource[X] {
+/** create using [[VarOwner.mkVar]] */
+sealed class Variable[X] private[drx] (init: X, name: String = "") extends GraphNode[X](name) with EventSource[X] with VarOwnerLike {
+  if (internals.activeSig.value.isDefined) throw new RuntimeException(
+    "Creating variables inside signals is likely to introduce memory leaks.")
+
   value = Some(init)
   def set(newValue: X): Unit = { println(s"set $id $now to $newValue"); value = Some(newValue); withContext(_.markVar(this)) }
   def transform(transformer: X => X): Unit = set(transformer(now))
   override private[drx] def subscribe(to: DerivedValue[_]): Unit = linkWith(to) {}
-  override def toString: String = "Var(" + this.value.toString + ")"
+  private[drx] def getVariables: Set[Variable[_]] = Set(this)
 }
 
 /** create using [[Signal.apply]] */
-sealed class Signal[X] private[drx] (private[drx] var formula: () => X, name: String) extends GraphNode[X](name) with DerivedValue[X] with Stream[X]
-object Signal { def apply[X](formula: => X, name: String = ""): Signal[X] = new Signal(formula _, name) }
+sealed class DynamicSignal[X] private[drx](private[drx] var formula: () => X, name: String) extends GraphNode[X](name) with DerivedValue[X] with Signal[X]
+object Signal { def apply[X](formula: => X, name: String = ""): DynamicSignal[X] = new DynamicSignal(formula _, name) }
 
-/** create using [[Stream.mkObs]] */
-sealed class Callback[X] private[drx](private[drx] val parent: Stream[X], callback: X => Unit) extends GraphNode[Unit]("obs") with DerivedValue[Unit] with Startable[Unit] {
+/** create using [[Signal.mkObs]] */
+sealed class Callback[X] private[drx](private[drx] val parent: Signal[X], callback: X => Unit) extends GraphNode[Unit]("obs") with DerivedValue[Unit] with Startable[Unit] {
   private[drx] var formula = () => { val tmp = parent.get; withContext(_.markObs{() => callback(tmp)}) }
   level = Int.MaxValue // run as late as possible
 }
 
-sealed trait Startable[X] { self: DerivedValue[X] =>
+private[drx] sealed trait Startable[X] { self: DerivedValue[X] =>
   var active = false
   override private[drx] def isNeeded = active
   def start(): Unit = if (!active) {
+    if (internals.activeSig.value.isDefined) throw new RuntimeException(
+      "You are starting an observer / creating a fold inside a signal. That very well may lead to memory leaks.")
     active = true
     try parent.subscribe(this) catch { case RetryLater => }
   }
   def stop(): Unit = if (active) { active = false; parent.unsubscribe(this) }
-  private[drx] def parent: Stream[_]
+  private[drx] def parent: Signal[_]
 }
 
 private object internals {
   private var uniqueCtr = 0
   def count: Int = { uniqueCtr += 1; uniqueCtr }
   val activeSig: DynamicVariable[Option[DerivedValue[_]]] = new DynamicVariable(None)
+  val dummyOwner = new VarOwner {}
 }

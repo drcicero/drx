@@ -1,13 +1,11 @@
 /** Created by david on 10.06.17. */
 package main
 
-import drx.{Signal, Variable, VariableLike}
+import drx.{DynamicSignal, Variable, VarOwner, Signal}
 //import rescala.Engines.{logging => rescala}; import rescala._
 
-class Task(title_ : String) extends VariableLike {
-  val title: Variable[String] = new Variable(title_, "t")
-  val done: Variable[Boolean] = new Variable(false, "d")
-  val folded: Signal[Int] = title.fold(0)((x, y) => x + 1)
-
-  override def getVariables: Seq[Variable[_]] = Seq(title, done)
+class Task(title_ : String) extends VarOwner {
+  val title: Variable[String] = mkVar(title_, "t")
+  val done: Variable[Boolean] = mkVar(false, "d")
+  val folded: DynamicSignal[Int] = title.fold(0, this)((x, y) => x + 1)
 }
