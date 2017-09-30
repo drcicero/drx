@@ -14,7 +14,7 @@ import main.Task
 import scala.collection.mutable
 
 object Rendering {
-  trait MutatingValue extends Node { var observer: Callback[_] = _ }
+  trait MutatingValue extends Node { var observer: Sink[_] = _ }
 
   def replaceLastChild(medium: Pane, newelem: Node): Unit = {
     foreachObs(medium)(_.stop())
@@ -23,7 +23,7 @@ object Rendering {
     if (medium.isVisible) foreachObs(medium)(_.start())
   }
 
-  def foreachObs(fc: Parent)(f: Callback[_] => Unit): Unit = {
+  def foreachObs(fc: Parent)(f: Sink[_] => Unit): Unit = {
     fc.getChildrenUnmodifiable.forEach { it =>
       it match {
         case x: MutatingValue => f(x.observer)
@@ -36,7 +36,7 @@ object Rendering {
     }
   }
 
-  implicit class SignalToNode(val sig: Signal[_ <: Node]) extends AnyVal {
+  implicit class SignalToNode(val sig: Rx[_ <: Node]) extends AnyVal {
     def drender: Node = {
       val medium = new Pane(new Label("{{init}}")) with MutatingValue
       medium.observer = sig.mkObs(replaceLastChild(medium, _))
@@ -44,84 +44,82 @@ object Rendering {
     }
   }
 
-  def collectAllObs(fc: Parent): Set[GraphNode[_]] = {
-    val set = mutable.Set[Callback[_]]()
-    foreachObs(fc)(set += _)
-    set.toSet[GraphNode[_]]
-  }
+//  def collectAllObs(fc: Parent): Set[Sink[_]] = {
+//    val set = mutable.Set[Sink[_]]()
+//    foreachObs(fc)(set += _)
+//    set.toSet[Sink[_]]
+//  }
 }
 
 class TodoFX extends Application {
   import Rendering.SignalToNode
 
-  override def start(primaryStage: Stage): Unit = grouped {
-    object state extends VarOwner {
-      val todoTextColor: Variable[String] = mkVar("green", "col")
-      val model: Store[Task, String] = mkStore((name: String) => new Task(name), "model")
-    }
+  override def start(primaryStage: Stage): Unit = transact {
+    val todoTextColor: Variable[String] = new Variable("green", "col")
+    val model: Store[Task, String] = new Store((name: String) => new Task(name), "model")
 
     def dview(task: Task): javafx.scene.Node = new HBox(10, Signal {
       val checkbox = new CheckBox()
       checkbox.setSelected(task.done.get)
-      checkbox.setOnAction { _ => task.done.transform(!_) }
+      checkbox.setOnAction(_ => task.done.transform(!_))
       checkbox
     }.drender, Signal {
       val field = new TextField(task.title.get)
       field.setOnAction(_ => task.title.set(field.getText()))
       field
-    }.drender, task.folded.map(x => new Label(x.toString)).drender)
+    }.drender
+    //, task.folded.map(x => new Label(x.toString)).drender
+    )
 
-    val mapped2 = state.model
+    val mapped2 = model
       .map({ it => it.count(!_.done.get) }, "notdone")
       .map({ it => if (it == 0) "no" else ""+it }, "string")
 
-    val mapped3 = state.model
-      .map({ it => it.toList.map { task => task.title.get.length }.sum.toString }, "charsum")
+    val mapped3 = model
+      .map(_.map { task => task.title.get.length }.sum.toString, "charsum")
 
     val textfield = new TextField("enter new task here")
     textfield.setOnAction { _ =>
-      state.model.create(textfield.getText)
+      model.create(textfield.getText)
       textfield.setText("")
     }
 
     val box = new VBox(10)
 
     val logbut = new Button("log it")
-    logbut.setOnAction(_ => Files.write(Paths.get("graph5.dot"), drx.debug
-      .stringit(Rendering.collectAllObs(box)).getBytes(StandardCharsets.UTF_8)))
+//    logbut.setOnAction(_ => compat2.compat2.writeToDisk())
 
     val gcbut = new Button("collect")
-    gcbut.setOnAction { _ => compat2.compat2.gc(); gcbut.setText(compat2.compat2.heapSize().toString) }
+    gcbut.setOnAction { _ => platform.platform.gc(); gcbut.setText(platform.platform.heapSize().toString) }
 
     box.getChildren.addAll(Seq[javafx.scene.Node](
       new HBox(10, gcbut, logbut),
 
       new Label("DO TODOS!"),
 
-      Signal{
+      Signal({
         val label = new Label("There are " + mapped2.get + " todos left, " +
           "with a total description length of " + mapped3.get + ".")
         label.setWrapText(true)
         label
-      }.drender,
+      }, "desc").drender,
 
       textfield,
 
       Signal(
-        if (state.model.get.isEmpty)
+        if (model.get.isEmpty)
           new Label("All done! :)")
         else
-          new VBox(10, state.model.get.map(dview).toList:_*)
+          new VBox(10, model.get.map(dview).toList:_*)
         , "tasklist").drender,
 
       Signal(
-        if (state.model.get.isEmpty)
+        if (model.get.isEmpty)
           new Label("")
         else {
           val but = new Button("remove all done todos")
-          but.setOnAction { _ =>
-            state.model.now.filter(item => item.done.now).foreach(state.model.kill)
-          }
+          but.setOnAction(_ =>
+            model.remove(model.sample.filter(_.done.sample)))
           but
         }, "button").drender
     ):_*)

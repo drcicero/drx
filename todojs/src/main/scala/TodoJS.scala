@@ -1,190 +1,142 @@
 /** Created by david on 05.05.17. */
 
+import RxDom._
 import drx._
-import main.Task
-import org.scalajs.dom.Element
 
-import scala.language.implicitConversions
-
-import scalatags.JsDom.all._
-import scala.scalajs.js
+import scalatags.JsDom.all.{checked, value}
 import org.scalajs.dom
+import org.scalajs.dom.html
+import org.scalajs.dom.html.DataList
 
+import scala.scalajs.js
+import scalatags.JsDom
 import scalatags.JsDom.TypedTag
+import scalatags.JsDom.all._
 
 object TodoJS extends js.JSApp {
 
-  private val DATA_IS_REACTIVE = "data-is-reactive"
-
-  def getObs(it: dom.Node): Sink[_] = it.asInstanceOf[js.Dynamic].drxObserverReference.asInstanceOf[Sink[_]]
-  def setSink(it: dom.Element, obs: Sink[_]): Unit = {
-    it.asInstanceOf[js.Dynamic].drxObserverReference = obs.asInstanceOf[js.Any]
-    if (obs != null) it.setAttribute(DATA_IS_REACTIVE, "true")
-    else             it.removeAttribute(DATA_IS_REACTIVE)
-  }
-  def isVisible(node: dom.Node): Boolean = dom.document.body.asInstanceOf[js.Dynamic].contains(node).asInstanceOf[Boolean]
-  private def foreachObs(fc: dom.Element)(f: Sink[_] => Unit): Unit = {
-    val list = fc.querySelectorAll("["+DATA_IS_REACTIVE+"]")
-    (0 until list.length).foreach { i => f(getObs(list(i))) }
+  class Task(title_ : String) extends VarOwner {
+    val title: Variable[String] = mkVar(title_, "t")
+    val done: Variable[Boolean] = mkVar(false, "d")
   }
 
-  def replaceLastChild(medium: dom.Element, newelem: dom.Element): Unit = {
-    val visible = isVisible(medium)
-    if (visible) foreachObs(medium)(_.stop())
-    medium.replaceChild(newelem, medium.lastChild)
-    if (visible) foreachObs(medium)(_.start())
-  }
-  implicit class SignalToElement(val sig: Rx[_ <: dom.html.Element]) extends AnyVal {
-    def drender: dom.html.Element = {
-      val medium = span(span("{{init}}")).render
-      val startObs: Sink[_] = sig.mkObs { newelem =>
-        replaceLastChild(medium, newelem) // last and only child
-      }
-      setSink(medium, startObs)
-      medium
-    }
-  }
+  val todoTextColor: Variable[String] = new Variable("green", "col")
+  val model: Store[Task, String] = new Store((name: String) => new Task(name), "model")
 
-  def replaceChild(medium: dom.Element, oldelem: dom.Element, newelem: dom.Element, sink: Sink[_]): Unit = {
-    if (isVisible(medium)) {
-      foreachObs(oldelem)(_.stop())
-      foreachObs(newelem)(_.start())
-    }
-    setSink(oldelem, null)
-    setSink(newelem, sink)
-    medium.replaceChild(newelem, oldelem)
-  }
-  implicit class SignalToElement2(val sig: Rx[_ <: TypedTag[dom.html.Element]]) extends AnyVal {
-    def drender: Modifier = (t: dom.Element) => {
-      var oldelem: dom.Element = span("{{init}}").render
-      lazy val sink: Sink[_] = sig.mkObs { mknew =>
-        val newelem = mknew.render
-        replaceChild(t, oldelem, newelem, sink)
-        oldelem = newelem
-      }
-      setSink(oldelem, sink)
-      t.appendChild(oldelem)
-    }
+  val domView: (Task) => TypedTag[dom.html.Element] = Extras.lazyExtensionAttr { that =>
+    val changeCtr = Extras.zip(that.title, that.done).fold(0)((state, event) => state + 1)
+
+    val changed = new Channel[Unit]()
+    val lastentries = that.title.snapshot(changed)
+      .fold(List[String]())((state, event) => event :: state.take(10))
+
+    li(
+      Signal(if (that.done.get) `class` := "task done" else `class` := "task").toMod,
+
+      input(`type` := "checkbox",
+        Signal((if (that.done.get) checked else ""):Modifier).toMod,
+        onchange := (() => that.done.transform(!_))),
+
+      input(list:="datalist-"+that.hashCode(),
+        Signal(value := that.title.get).toMod,
+        Signal(style := "color:" + todoTextColor.get).toMod,
+        oninput  := { ev: dom.Event => that.title.set(ev.target.asInstanceOf[dom.html.Input].value) },
+        onchange := { ev: dom.Event => that.title.set(ev.target.asInstanceOf[dom.html.Input].value); changed.send(()) }),
+
+      lastentries.map(it => datalist(
+        id:="datalist-"+that.hashCode(),
+        it.map(it => option(value := it)))).toMod,
+
+      changeCtr.map(span(_)).toMod
+    )
   }
 
-  def attrValue(sig: Rx[Modifier]): Modifier =
-    (t: dom.Element) => sig.mkObs { mod =>
-      mod.applyTo(t)
-    }
+//  val counter: (Task) => Modifier = Extras.lazyExtensionAttr(that =>
+//    )
 
-//  implicit def styleValue[T: StyleValue](t: dom.Element, a: Style, signal: Signal[T]): Unit =
-//      signal.foreach { value => implicitly[StyleValue[T]].apply(t, a, value) }
+  override def main(): Unit = transact {
+    val mapped2 = model
+      .map({ it => it.count(!_.done.get) }, "notdone")
+      .map({ it => span(if (it == 0) "no" else ""+it) }, "string")
+    val mapped3 = model.map({ it => span(it.toList.map { task => task.title.get.length }.sum) }, "charsum")
 
-// for debugging / testing purposes
-//  def checkConsistency(): Unit = {
-//    val a: Set[Observer[_]] = collectAllObs()
-//    val b: Set[Observer[_]] = drx.debug.transitivehullobservers(a)
-//    if (a != b) println("mist: onlydom=" + (a -- b).map(_.id) + " | onlygraph=" + (b -- a).map(_.id))
-//  }
+    val log = textarea(id:="log").render
 
-  def collectAllObs(): Set[Sink[_]] = {
-    val list = dom.document.body.querySelectorAll("["+DATA_IS_REACTIVE+"]")
-    (for (i <- 0 until list.length) yield getObs(list(i))).toSet[Sink[_]]
+    val x = model.map( it => it.map(domView(_))).wrap(ul).toMod
+    val todolist = model.map(_.isEmpty).map( isEmpty => {
+      if (isEmpty) div(`class` := "info", "All done! :)")
+      else x
+    }, "tasklist").toMod
+
+    insertChild(dom.document.body, div(
+
+//      {
+//        val clock = new Variable(scalajs.js.Date())
+//
+//        val id = scala.scalajs.js.timers.setInterval(1000) {
+//          clock.set(scalajs.js.Date())
+//        }
+//
+//        // scala.scalajs.js.timers.clearInterval(id)
+//
+//        Signal(div(
+//          h1("Hello, world!"),
+//          h2("It is ", clock.get))).toMod
+//      },
+
+      button("gen ten", onclick := (() =>
+        for (i <- 0 to 10) model.create( "unique" + i))),
+      button("del ten", onclick := (() =>
+        model.remove(model.sample))),
+      button("paint", onclick := (() =>
+        log.value = drx.debug.stringit(collectAllSinks(dom.document.body)))),
+
+      br(),
+      h1("DO TODOS!"),
+      span("There are ", mapped2.toMod, " todos left, " +
+        "with a total description length of ", mapped3.toMod, "."),
+
+      form(
+        input(placeholder:= "enter new task here"),
+        onsubmit := { e: dom.Event =>
+          e.preventDefault()
+          val inputElem = e.target.asInstanceOf[dom.html.Form].children(0).asInstanceOf[dom.html.Input]
+          model.create(inputElem.value)
+          inputElem.value = ""
+        }),
+
+      span("first"),
+      todolist,
+      span("second"),
+      todolist,
+
+      input(
+        `type`:="button",
+        model.map(_.isEmpty).map(isEmpty => (
+          if (isEmpty) style:="display:none"
+          else style:=""):Modifier, "button").toMod,
+        value:= "remove all done todos",
+        onclick:= { () =>
+          model.remove(model.sample.filter(_.done.sample))
+        }
+      ),
+
+      br(),
+      br(),
+      br(),
+      br(),
+
+      log
+
+//      button(
+//        style:="display: block", onclick := { () =>
+//          val tmp = document.querySelector("#svg-container svg")
+//          tmp.outerHTML = Viz(rx.printit(), { engine: "dot" })
+//        }, "So be it!"),
+//      div(id:="svg-container", svg()).render,
+
+//      button("doit", onclick:= { () => drx.helper.printless() }),
+
+    ).render)
   }
-
-  override def main(): Unit = {
-    grouped {
-      object state extends VarOwner {
-        val todoTextColor: Variable[String] = mkVar("green", "col")
-        val model: Store[Task, String] = mkStore((name: String) => new Task(name), "model")
-      }
-
-      def dview(task: Task): Modifier = {
-        println("run me")
-        Signal(li(
-          if (task.done.get) `class` := "task done" else `class` := "task",
-          input(`type` := "checkbox",
-            if (task.done.get) checked else "",
-            onchange := { () => task.done.transform(!_) }),
-          input(attrValue(Signal(value := task.title.get)),
-            style := "color:" + state.todoTextColor.get,
-            onchange := { ev: dom.Event => task.title.set(ev.target.asInstanceOf[dom.html.Input].value) }),
-          task.folded.map(span(_)).drender
-        )).drender
-      }
-
-//      val model = new Variable(List[Task](), "model")
-
-      val mapped2 = state.model
-        .map({ it => it.count(!_.done.get) }, "notdone")
-        .map({ it => span(if (it == 0) "no" else ""+it) }, "string")
-      val mapped3 = state.model.map({ it => span(it.toList.map { task => task.title.get.length }.sum) }, "charsum")
-
-      val log = textarea(id:="log").render
-
-      val todolist = Signal(
-        if (state.model.get.isEmpty)
-          div(`class` := "info", "All done! :)")
-        else ul(state.model.get.map(dview).toList)
-        , "tasklist")
-
-      dom.document.body.appendChild(span("{{init}}").render)
-      replaceLastChild(dom.document.body, div(
-
-        button("gen ten", onclick := (() =>
-          for (i <- 0 to 10) state.model.create( "unique" + i))),
-        button("del ten", onclick := (() =>
-          state.model.remove(state.model.sample))),
-        button("paint", onclick := (() =>
-          log.value = drx.debug.stringit(collectAllObs().toSet))),
-
-        br(),
-        h1("DO TODOS!"),
-        span("There are ", mapped2.drender, " todos left, " +
-          "with a total description length of ", mapped3.drender, "."),
-
-        {
-          val inputElem = input(placeholder:= "enter new task here").render
-          form(inputElem, onsubmit := { e: dom.Event => e.preventDefault()
-//            val input = e.target.asInstanceOf[dom.html.Form].children(0).asInstanceOf[dom.html.Input]
-            println(inputElem.value)
-            state.model.create(inputElem.value)
-            inputElem.value = ""
-          })
-        },
-
-        span("first"),
-        todolist.drender,
-        span("second"),
-        todolist.drender,
-
-        Signal(
-          if (state.model.get.isEmpty)
-            br()
-          else input(
-            `type`:="button",
-            value:= "remove all done todos",
-            onclick:= { () =>
-              state.model.remove(state.model.sample.filter(item => item.done.sample))
-//              model.transform( it => it.filter(item => !item.done.now))
-            }
-          )
-        ,"button").drender,
-
-        br(),
-        br(),
-        br(),
-        br(),
-
-        log
-
-  //      button(
-  //        style:="display: block", onclick := { () =>
-  //          val tmp = document.querySelector("#svg-container svg")
-  //          tmp.outerHTML = Viz(rx.printit(), { engine: "dot" })
-  //        }, "So be it!"),
-  //      div(id:="svg-container", svg()).render,
-
-  //      button("doit", onclick:= { () => drx.helper.printless() }),
-
-      ).render)
-
-    }
-  }
-
 }

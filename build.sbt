@@ -11,6 +11,7 @@ lazy val todojs = (project in file("todojs"))
     , scalaVersion := "2.12.2"
     , scalaJSUseMainModuleInitializer := true
     , libraryDependencies += "com.lihaoyi" %%% "scalatags" % "0.6.5"
+    , scalacOptions += "-feature"
 //  , scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
   )
 
@@ -21,6 +22,7 @@ lazy val todofx = (project in file("todofx"))
   )
 
 lazy val all = crossProject.in(file(".")).settings( name := "all"
+    , scalacOptions += "-feature"
     , scalaVersion := "2.12.2"
   )
   .jsSettings( mainClass in (Compile, run) := Some("Main2")

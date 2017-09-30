@@ -1,20 +1,46 @@
 package drx
 
+import scala.util.{Success, Try}
+
 /* public methods for reactives. */
-class Rx[X](isEvent: Boolean, name: String) extends InternalRx[X](isEvent, name) {
+trait Rx[X] {
+  private[drx] def underlying: InternalRx[X]
+  def id: String
+
+  //////////////////////////////////////////////////////////////////////////////
+  // COMBINATORS
+
+  /** create a dependent reactive. */
+  def map[Y](func: X => Y, name: String = ""): Rx[Y] = {
+    val result = new InternalRx[Y](underlying.remember, "m") with Rx[Y]
+    result.formula = () => func(this.abstractget)
+    result
+  }
+
+  /** turn reactive into a stream of changes. */
+  def changes(name: String = "ch"): Rx[X] = {
+    val result = new InternalRx[X](StreamKind, name) with Rx[X]
+    result.formula = () => this.abstractget
+    result
+  }
+
+  /** turn reactive into a signal, with initial value. */
+  def hold(init: X, name: String = "hd"): Rx[X] =
+    fold(init)( (_, ev) => ev )
 
   /** create a stateful signal, that gets its incoming value and its previous value
     * to create the next value. fails inside a signal. */
-  def fold[Y](init: Y, owner: VarLike = internals.dummyOwner)(comb: (Y, X) => Y): Rx[Y] = {
-    val result = new Rx[Y](false, "f") with Sink[Y]
-    result.father = Some(this)
-    result.value = Some(init)
+  def fold[Y](init: Y)(comb: (Y, X) => Y): Rx[Y] = {
+    val result = new InternalRx[Y](SignalKind, "f") with Rx[Y] with Sink[Y]
+    result.value = Success(init)
     result.formula = () => {
-      val tmp = this.get
+      val tmp = this.abstractget
       comb(result.value.get, tmp)
     }
     result.start()
     result
+    // (..., owner: VarLike = internals.dummyOwner)
+    // internals.checksafety(this, owner)
   }
 
   /** this creates an callback, that is deactivated. you can do this even running inside a signal.
@@ -22,11 +48,10 @@ class Rx[X](isEvent: Boolean, name: String) extends InternalRx[X](isEvent, name)
     * see the accompanying javafx and scalajshtml renderer for an example to use this.
     * see also [[mkObs]]. */
   def mkObs(callback: X => Unit): Sink[Unit] = {
-    val result = new InternalRx[Unit](true, "o") with Sink[Unit]
-    result.father = Some(this)
+    val result = new InternalRx[Unit](StreamKind, "o") with Sink[Unit]
     result.formula = () => {
-      val tmp = this.get
-      withContext(_.runLater(() => callback(tmp)))
+      val tmp = this.abstractget
+      withTransaction(_.runLater(() => callback(tmp)))
     }
     result
   }
@@ -34,117 +59,135 @@ class Rx[X](isEvent: Boolean, name: String) extends InternalRx[X](isEvent, name)
   /** creates a callback, that immediately starts running on each change.
     * fails inside a signal. see also [[mkObs]]. */
   def observe(callback: X => Unit): Sink[Unit] = {
-    val result = new InternalRx[Unit](true, "o") with Sink[Unit]
-    result.father = Some(this)
+    val result = new InternalRx[Unit](StreamKind, "o") with Sink[Unit]
     result.formula = () => {
-      val tmp = this.get
-      withContext(_.runLater(() => callback(tmp)))
+      val tmp = this.abstractget
+      withTransaction(_.runLater(() => callback(tmp)))
     }
     result.start()
     result
   }
 
-  /** create a dependent reactive. */
-  def map[Y](func: X => Y, name: String = ""): Rx[Y] = {
-    val result = new Rx[Y](this.isEvent, "m")
-    result.father = Some(this)
-    result.formula = () => func(this.get)
-    result
-  }
-
-  /** if inside a signal, read another signal, and create a dependency. */
-  def get: X = {
-    val rxmark = internals.activeRx.value.get
-
-    // if enclosing rx is needed, ensure pushing and return value
-    if (rxmark.rx.isNeeded) {
-      pushto(rxmark.rx, rxmark.markOuts)
-      return value.getOrElse(throw EmptyStream)
+  def snapshot(stream: Rx[_]): Rx[X] = {
+    val result = new InternalRx[X](StreamKind, "") with Rx[X]
+    result.formula = () => {
+      stream.abstractget
+      this.abstractget
     }
-
-    // else we are pulling
-    if (isNeeded) // if this is needed, value is up to date and can simply be returned
-      value.getOrElse(throw EmptyStream)
-    else // if not, we need to calculate the value
-      reeval(markOuts = false)
+    result
   }
 
-  /** try to read the current value of a signal, if it has one.
-    * if the value is observed elsewhere, it will simply look the the value up,
-    * else it will calculate the value.
-    * You cannot sample a value running inside a signal. */
-  def sample: X = {
-    // TODO maybe we can allow this? reeval may create another context, would that be bad?
+  //////////////////////////////////////////////////////////////////////////////
+  // get, sample
+
+  /** Returns the current value of this signal.
+    * Calling .get on a stream will fail with an Exception.
+    *
+    * Only works inside of Signal(...) expressions,
+    * where it will create a dependency from 'this' to the Signal(...), so that
+    * the Signal(...) will reevaluate, when 'this' reevaluates.
+    *
+    * See also [[sample]], [[trySample]]. */
+  def get: X = tryGet.get
+
+  /** Returns the current value of a signal,
+    * or raises a EmptryStream Exception for streams.
+    *
+    * Only works outside of Signal(...) expressions.
+    * It does not create a dependency between any reactives.
+    *
+    * See also [[trySample]], [[get]]. */
+  def sample: X = trySample.get
+
+  /** Returns the value of the 'this' signal or none for streams.
+    *
+    * Only works inside of Signal(...) expressions,
+    * where it will create a dependency from 'this' to the Signal(...), so that
+    * the Signal(...) will reevaluate, when 'this' reevaluates.
+    *
+    * See also [[get]], [[trySample]], [[sample]]. */
+  private def tryGet: Try[X] = {
+    val activeRx = internals.activeRx.value.getOrElse(
+      throw new RuntimeException("Do not get outside of Signal(...)! Hint: use .sample()"))
+    if (/* activeRx.remember == SignalKind && */ underlying.remember == StreamKind)
+      throw new RuntimeException("You cannot call .get on a stream. " +
+        "Hint: Turn the the stream into a signal using '.hold'.")
+    annotateTry(underlying.tryGetValue(outer = Some(activeRx)))
+  }
+
+  /** Returns the value of the 'this' signal or none for streams.
+    *
+    * Only works outside of Signal(...) expressions.
+    * It does not create a dependency between any reactives.
+    *
+    * See also [[sample]], [[get]]. */
+  def trySample: Try[X] = {
     if (internals.activeRx.value.isDefined)
-      throw new RuntimeException("Do not sample inside of signals.")
-    if (withContext.activeCtx.value.isDefined)
-      throw new RuntimeException("Do not sample inside of transactions.")
+      throw new RuntimeException("Do not sample inside of Signal(...)! Hint: use .get()")
 
-    // if this isNeeded then the value is up to date and can simply be returned,
-    // else we have to calculate the value
-    if (this.isNeeded)
-      value.getOrElse(throw EmptyStream)
-    else
-      reeval(markOuts = false)
+    if (internals.withRetries) {
+      var tmp: Try[X] = internals.TheEmptyStream
+      val obs = this.mkObs(x => tmp = Success(x))
+      withTransaction.activeCtx.withValue(None) { obs.start() }
+      obs.stop()
+      println("hello " + tmp)
+      tmp
+    } else
+      annotateTry(underlying.tryGetValue(outer = None))
+//      annotateTry(withTransaction.activeCtx.withValue(None){withTransaction(underlying)(_.markRx(underlying))})
   }
 
-  def changes(name: String = ""): Rx[X] = {
-    val result = new Rx[X](true, "m")
-    result.father = Some(this)
-    result.formula = () => this.get
-    result
+  private[drx] def abstractget: X = {
+    val activeRx = internals.activeRx.value.get // should be impossible to fail
+    underlying.tryGetValue(outer = Some(activeRx)).get
   }
 
-  def hold(init: X, name: String = ""): Rx[X] = {
-    val result = new Rx[X](false, "m")
-    result.father = Some(this)
-    result.value = Some(init)
-    result.formula = () => this.get
-    result
-  }
+  /** debugging */
+  def debugGetDirtyValue: Try[X] = underlying.value
+
+  private def annotateTry[X](theTry: Try[X]): Try[X] = theTry
+    .recover { case e =>
+      val result = new EmptyStream(e)
+      result.setStackTrace(result.getStackTrace.drop(4).filter(x => !x.getClassName.startsWith("drx.")).take(1))
+      throw result
+    }
 }
 
-//object Flattener {
-//  implicit class RxRx[X](ss: Rx[Rx[X]]) {
-//    def flatten(name: String = ""): Rx[X] = {
-//      // TODO if father were to be changed (flatten/switch?), it potentially must be removed from to
-//      val result = new Rx[X](ss.isEvent, name)
-//      ss.map(s => s.map { x =>
-//        result.value = Some(x)
-//        withContext(_.markSignal(result))
-//      })
-//      result
-//    }
-//  }
-//}
+//////////////////////////////////////////////////////////////////////////////
+// Sinks
 
 trait Sink[X] extends InternalRx[X] {
-//  private[drx] override def kill(): Unit = { stop(); super.kill() }
-  def start(): Unit = if (!forceNeeded) {
+  private[drx] override def freeze(): Unit = {
+    stop()
+    super.freeze()
+  }
+
+  def start(): Unit = {
     if (internals.activeRx.value.isDefined) throw new RuntimeException(
       "You are starting an observer / creating a fold inside a signal. " +
-      "That very well may lead to memory leaks.")
-    forceNeeded = true
-//    father.foreach(_.pushto(this, markOuts = true))
-    withContext(_.markRx(this, markOuts = true))
+      "That may lead to memory leaks.")
+
+    if (!forceActive) {
+      forceActive = true
+      withTransaction(_.markRx(this))
+    }
   }
-  def stop(): Unit = if (forceNeeded) {
-    forceNeeded = false
+
+  def stop(): Unit = if (forceActive) {
+    forceActive = false
     (father ++ ins).foreach(_.unpushto(this))
   }
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// Signal Expressions
 
 /** create a dynamic signal. you may call _.get on other signals inside the
   * closure to get and depend on their value. */
 object Signal {
   def apply[X](formula: => X, name: String = ""): Rx[X] = {
-    val result = new Rx[X](true, name)
+    val result = new InternalRx[X](SignalKind, name) with Rx[X]
     result.formula = formula _
     result
   }
 }
-
-// TODO Future work: make
-//   Rx.*
-// return proxies instead, so we get accurate info over finalizers, which nodes
-// are still used.

@@ -1,10 +1,10 @@
 package main
 
-import drx.{Callback, Signal, VarOwner, Variable}
+import drx._
 
 /** Created by david on 10.06.17. */
 object Main {
-  private sealed abstract class Tree(var obsid: Callback[_] = null)
+  private sealed abstract class Tree(var obsid: Sink[_] = null)
   private case class Leaf(content: String) extends Tree
   private case class Ast(children: MList) extends Tree
   private type MList = scala.collection.mutable.ListBuffer[Tree]
@@ -15,8 +15,8 @@ object Main {
     case Ast(l) => l.foreach((x) => printTree(x, i+1))
   }
 
-  private def trender(sig: Signal[_ <: Tree]): Tree = {
-    def forallObs(t: Tree, func: Callback[_] => Unit): Unit = {
+  private def trender(sig: Rx[_ <: Tree]): Tree = {
+    def forallObs(t: Tree, func: Sink[_] => Unit): Unit = {
       if (t.obsid != null) func(t.obsid)
       t match {
         case Ast(c) => c.foreach(forallObs(_, func))
@@ -80,8 +80,73 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
+    val daa = new Variable[Boolean](false)
+    val a = daa.map(!_).map(!_).map(!_).map(!_)
+    val b = a.map(!_)
+    val c = a.map(!_)
+    val d = Extras.zip(c,b).map(_._1)
+    val e = d.map(!_)
+    val f = e.map(!_)
+    transact {
+      daa set true
+      println("interest: " + f.sample + " == true")
+    }
+
+    val t1 = new Channel[Boolean]()
+    val t2 = t1 // .fold(false)((state,ev)=>ev)
+
+    val a1 = t2
+      .changes()
+      .map(it=>it)
+      .map(it=>it)
+      .hold(false)
+      .map(it=>it)
+      .map(it=>it)
+      .changes()
+      .map(it=>it)
+      .map(it=>it)
+
+    println("interest: " + a1.sample + " == false")
+    t1 send true
+    println("interest: " + a1.sample + " == true")
+    t1 send false
+    println("interest: " + a1.sample + " == false")
+
+//    val t3 = new Source[Int]()
+//    val t4 = t3.map(it=>it)
+//    val t5 = t4.map(it=>it)
+//
+//    val t6 = new Source[Int]()
+//    val t7 = Signal(if (t1.get) t5.get else t6.get)
+//    t7.observe { it => println("!!! " + it) }
+//
+//    t3.fire(2)
+//    t6.fire(3)
+//    t3.fire(2)
+//    t6.fire(3)
+//    t1.fire(true)
+//    t3.fire(2)
+//    t6.fire(3)
+//    t3.fire(2)
+//    t6.fire(3)
+//    t1.fire(false)
+//    t3.fire(2)
+//    t6.fire(3)
+//    t3.fire(2)
+//    t6.fire(3)
+//    t1.fire(false)
+//    t3.fire(2)
+//    t6.fire(3)
+//    t3.fire(2)
+//    t6.fire(3)
+//    t1.fire(true)
+//    t3.fire(2)
+//    t6.fire(3)
+//    t3.fire(2)
+//    t6.fire(3)
+
 //    for (x <- 1 to 2) {
-      partOfMain()
+//      partOfMain()
 //    }
 
 //    var keeprunning = true
