@@ -64,7 +64,7 @@ object debug {
     val sigs = transitivehull(root ++ debugRxs.keys)
 
     def color(rx: GraphNode[_]): String = (rx match {
-      case it: EventSource[_]  => "fillcolor=\"#00aadd\",shape=invtriangle"
+      case _: EventSource[_]   => "fillcolor=\"#00aadd\",shape=invtriangle"
       case it: Callback[_]     => "fillcolor=\"" + (if (it.isNeeded) "#ddaa00" else "silver") +"\",shape=triangle"
       case it: DerivedValue[_] => if (!it.isNeeded) "fillcolor=silver,shape=diamond"
       else if (it.getOuts.isEmpty) "fillcolor=\"red\",shape=diamond" else "fillcolor=\"#aadd00\",shape=diamond"
@@ -74,26 +74,26 @@ object debug {
 
       sigs.map {it => (
 
-        s"""  "${it.id}" [style=filled,${color(it)},tooltip="${serialize(it.value)}",fixedsize=shape]\n""" +
+        s"""  "${it.id+"\\n"+it.level}" [style=filled,${color(it)},tooltip="${serialize(it.value)}",fixedsize=shape]\n""" +
 
           (it match {
             case it: DerivedValue[_] =>
               it.ins
                 .filter { dep => !dep.getOuts.contains(it) }
                 .map { dep =>
-                s"""  "${dep.id}" -> "${it.id}" [color=silver dir=back]"""
+                s"""  "${dep.id+"\\n"+dep.level}" -> "${it.id+"\\n"+it.level}" [color=silver dir=back]"""
               }.mkString("\n")
             case _ => ""
           }) +
 
           it.getOuts.map { child =>
-            s"""  "${it.id}" -> "${child.id}" [dir=both]"""
+            s"""  "${it.id+"\\n"+it.level}" -> "${child.id+"\\n"+child.level}" [dir=both]"""
           }.mkString("\n") +
 
           (it match {
             case it: Store[_,_] =>
               it.now.flatMap(_.getVariables).map { child =>
-                s"""  "${it.id}" -> "${child.id}" [color=aqua]"""
+                s"""  "${it.id+"\\n"+it.level}" -> "${child.id+"\\n"+child.level}" [color=aqua]"""
               }.mkString("\n")
             case _ => ""
           })+
