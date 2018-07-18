@@ -28,19 +28,24 @@ trait Rx[X] {
   def hold(init: X, name: String = "hd"): Rx[X] =
     fold(init)( (_, ev) => ev )
 
-  /** create a stateful signal, that gets its incoming value and its previous value
-    * to create the next value. fails inside a signal. */
-  def fold[Y](init: Y)(comb: (Y, X) => Y): Rx[Y] = {
+  def mkFold[Y](init: Y)(comb: (Y, X) => Y): Rx[Y] with Sink[Y] = {
     val result = new InternalRx[Y](SignalKind, "f") with Rx[Y] with Sink[Y]
     result.value = Success(init)
     result.formula = () => {
       val tmp = this.abstractget
       comb(result.value.get, tmp)
     }
-    result.start()
     result
     // (..., owner: VarLike = internals.dummyOwner)
     // internals.checksafety(this, owner)
+  }
+
+  /** create a stateful signal, that gets its incoming value and its previous value
+    * to create the next value. fails inside a signal. */
+  def fold[Y](init: Y)(comb: (Y, X) => Y): Rx[Y] = {
+    val result = mkFold(init)(comb)
+    result.start()
+    result
   }
 
   /** this creates an callback, that is deactivated. you can do this even running inside a signal.
@@ -59,11 +64,7 @@ trait Rx[X] {
   /** creates a callback, that immediately starts running on each change.
     * fails inside a signal. see also [[mkObs]]. */
   def observe(callback: X => Unit): Sink[Unit] = {
-    val result = new InternalRx[Unit](StreamKind, "o") with Sink[Unit]
-    result.formula = () => {
-      val tmp = this.abstractget
-      withTransaction(_.runLater(() => callback(tmp)))
-    }
+    val result = mkObs(callback)
     result.start()
     result
   }
@@ -145,8 +146,8 @@ trait Rx[X] {
   /** debugging */
   def debugGetDirtyValue: Try[X] = underlying.value
 
-  private def annotateTry[X](theTry: Try[X]): Try[X] = theTry
-    .recover { case e =>
+  private def annotateTry[X](theTry: Try[X]): Try[X] =
+    theTry.recover { case e =>
       val result = new EmptyStream(e)
       result.setStackTrace(result.getStackTrace.drop(4).filter(x => !x.getClassName.startsWith("drx.")).take(1))
       throw result
@@ -175,7 +176,7 @@ trait Sink[X] extends InternalRx[X] {
 
   def stop(): Unit = if (forceActive) {
     forceActive = false
-    (father ++ ins).foreach(_.unpushto(this))
+    getIns.foreach(_.unpushto(this))
   }
 }
 

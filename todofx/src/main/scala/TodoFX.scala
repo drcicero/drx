@@ -1,7 +1,7 @@
 //import javafx.collections.ObservableList
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
-import javafx.application.Application
+import javafx.application.{Platform, Application}
 import javafx.geometry.Insets
 import javafx.scene.control.{Button, CheckBox, Label, TextField}
 import javafx.scene.layout.{HBox, Pane, StackPane, VBox}

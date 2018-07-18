@@ -2,7 +2,7 @@ package drx
 
 import scala.util.Success
 
-private[drx] trait VarLike extends AnyRef {
+trait VarLike extends AnyRef {
   private[drx] def getEventsources: Set[EventSource[_]]
 }
 

@@ -62,7 +62,7 @@ private class Transaction {
   private val effects = mutable.Set[() => Unit]()
 
   private[drx] def processChanges[X](getValueOf: Option[InternalRx[X]]): Option[Try[X]] = {
-    println((dirtySources.map(_.id).mkString(" "),
+    if (LOG) println((dirtySources.map(_.id).mkString(" "),
       toList(dirty).map(_.id).mkString(" "),
       effects.mkString(" ")))
     dirtySources.foreach(it => markRx(it))
@@ -73,8 +73,7 @@ private class Transaction {
     clean.clear()
     effects.foreach(_ ())
     effects.clear()
-    println(log)
-    log = ""
+    if (LOG) { println(log); log = "" }
     if (dirtySources.nonEmpty || dirty.size() != 0) processChanges(getValueOf)
     else { println(); getValueOf.map(_.value) }
   }
@@ -114,11 +113,11 @@ private class Transaction {
       if (internals.withRetries) {
         dirty.remove(head) // with retries the signal might be reevaluated twice, so remove it first
         head.reeval()
-        log += head.id + "; "
+        if (LOG) log += head.id + "; "
       } else {
-        log += head.id + " ("
+        if (LOG) log += head.id + " ("
         head.reeval()
-        log += "); "
+        if (LOG) log += "); "
         dirty.remove(head) // without retries the signal should not be reevaluated twice, so remove it later
       }
     }
@@ -138,4 +137,5 @@ private class Transaction {
     scala.collection.JavaConverters.asScalaIterator(queue.iterator()).toSet
   private def str(sig: InternalRx[_]): String = sig.level + ":" + sig.id
   private var log = ""
+  private val LOG = false
 }

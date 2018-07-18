@@ -1,8 +1,5 @@
 import main.Main
-import scala.scalajs.js.JSApp
 
-object Main2 extends JSApp {
-  override def main(): Unit = {
-    Main.main(Array())
-  }
+object Main2 {
+  def main(args: Array[String]): Unit = Main.main(Array())
 }

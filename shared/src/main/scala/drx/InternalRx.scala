@@ -12,41 +12,44 @@ case object StreamKind extends Remember
 private[drx] class InternalRx[X] private[drx]
   (private[drx] val remember: Remember, name: String)
 {
-  // private[drx] val dummy = Array.tabulate(1000 * 100)( i => i )
+//  private[drx] val dummy = Array.tabulate(1000 * 100)( i => i ) // TODO
+
   val id: String = "" + internals.count + name
   private[drx] def underlying: InternalRx[X] = this
   private[drx] var debugEvaluating: Boolean = false
   debug.debugRxs(this) = Unit // for debugging
 
+  // for glitchfreedom, always higher than the all incomings level
+  private[drx] var level: Int = 0
   // signals remember the last value or an exception encoutered during evaluation
   private[drx] var value: Try[X] = internals.TheEmptyStream
   // to calculate the next value
   private[drx] var formula: ()=>X = () => value.get
+
   // for propagation, push to these rx
   private[drx] val outs: mutable.Set[InternalRx[_]] = mutable.Set()
   // for dynamic edges, remember incomings
   private[drx] val ins: mutable.Set[InternalRx[_]] = mutable.Set()
-  // turn unobserved into unreachable, if true, force evaluation
-  private[drx] var forceActive: Boolean = false
-  // turn frozen into unreachable, if true, .value will never change
-  private[drx] var isFrozen: Boolean = false
-  // for glitchfreedom, always higher than the all incomings level
-  private[drx] var level: Int = 0
   // for optimizations on static edges, static incomings
   private[drx] var father: Option[InternalRx[_]] = None
-
-  // INVARIANT: noturn ==> (!isEvent <==> value != None)
-  // INVARIANT: outs         .forall(out => out.level > this.level)
-  // INVARIANT: (ins++father).forall(in  => in.level  < this.level)
-  // INVARIANT: !this.isNeeded ==> debugRxs.forall( rx => !rx.out.contains(this) )
+  // turn unobserved into unreachable, if true, force evaluation
+  private[drx] var forceActive: Boolean = false
+  // you cannot trust ins if not run at least once
+  private[drx] var runatleastonce: Boolean = false
 
   private[drx] def getIns: Set[InternalRx[_]] = ins.toSet ++ father
   private[drx] def getOuts: Set[InternalRx[_]] = outs.toSet
   private[drx] def isActive: Boolean = outs.nonEmpty || forceActive
+  private[drx] def isFrozen: Boolean = runatleastonce && getIns.isEmpty && !forceActive
+
+  // INVARIANT: noturn ==> (!isEvent <==> value != None)
+  // INVARIANT: outs         .forall(out => out.level > this.level)
+  // INVARIANT: getIns       .forall(in  => in.level  < this.level)
+  // INVARIANT: !this.isNeeded ==> debugRxs.forall( rx => !rx.out.contains(this) )
 
   private[drx] def tryGetValue(outer: Option[InternalRx[_]]): Try[X] = withTransaction { tx =>
     // if we are frozen, we return our immutable value
-    if (isFrozen) return value
+    if (isFrozen) { println("is frozen: " + this.id); return value }
 
     // if we are inactive, our value may be invalid, so we mark us for reevaluation
     if (!isActive && !withTransaction(_.clean.contains(this))) tx.markRx(this)
@@ -77,6 +80,8 @@ private[drx] class InternalRx[X] private[drx]
     val newValue = internals.activeRx.withValue(Some(this)) { Try(formula()) }
     (tmpIn -- ins).foreach(_.unpushto(this)) // stop pushing from dependencies, we do not depend on anymore
 
+    runatleastonce = true
+
     // If the newValue does not signify to Abort evaluation (EmptyStream) and
     // the value actually changed, compared to the last value.
     val failedWithEmptyStream = newValue.failed.map(_.isInstanceOf[EmptyStream]).getOrElse(false)
@@ -106,16 +111,17 @@ private[drx] class InternalRx[X] private[drx]
     // println(s"  broke from $id to ${to.id}")
     outs -= to
     // if we just lost our last outgoing, then we deactivate ourself, too.
-    if (!isActive) (ins ++ father).foreach(_.unpushto(this))
+    if (!isActive) getIns.foreach(_.unpushto(this))
   }
 
   private[drx] def freeze(): Unit = {
-    isFrozen = true
-    outs.foreach { it => if ((it.ins ++ it.father).forall(_.isFrozen)) it.freeze() }
-    outs.clear()
     formula = () => value.get
     father = None
     ins.clear()
+    runatleastonce = true
+
+    val tmp = Set() ++ outs; outs.clear()
+    tmp.foreach { it => if (it.getIns.forall(_.isFrozen)) it.freeze() }
   }
 
   private def connect(outer: InternalRx[_]) = {
@@ -139,7 +145,7 @@ private[drx] class InternalRx[X] private[drx]
   private def leveldown(newLevel: Int): Unit = if (newLevel < this.level) {
     level = newLevel
     withTransaction(_.resubmit(this))
-    (ins ++ father).foreach(_.leveldown(newLevel - 1))
+    getIns.foreach(_.leveldown(newLevel - 1))
   }
 
   override protected def finalize(): Unit =

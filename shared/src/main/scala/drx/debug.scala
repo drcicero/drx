@@ -63,8 +63,8 @@ object debug {
         if (rx.debugEvaluating) "\"#ddaa00\"" // orange
 //        else if (withTransaction.activeCtx.value.exists(_.ready.contains(rx))) "\"#dddd00\"" // yellow
         else if (withTransaction.activeCtx.value.exists(_.dirty.contains(rx))) "\"#aadd00\"" // green
-        else if (withTransaction.activeCtx.value.exists(_.clean.contains(rx))) "\"silver\""
-//        else if (rx.isFrozen) "\"#00ddaa\"" // "silver"
+        else if (withTransaction.activeCtx.value.exists(_.clean.contains(rx))) "\"gray\""
+        else if (rx.isFrozen) "\"#00ddaa\"" // "gray"
         else "white")
 //      + "," + (rx match {
 //        case _: EventSource[_] => "shape=triangle"
@@ -94,7 +94,7 @@ object debug {
 
           it.getIns.filter { father => !father.getOuts.contains(it) }
             .map { dep =>
-              "  %s -> %s [color=silver dir=back]".format(str(dep), str(it))
+              "  %s -> %s [color=gray dir=back]".format(str(dep), str(it))
             }.mkString("\n") +
 
           it.getOuts.map { child =>

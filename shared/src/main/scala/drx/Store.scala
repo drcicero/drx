@@ -2,31 +2,45 @@ package drx
 
 import scala.collection.mutable
 import scala.util.Success
+import scala.util.Try
 
 /** create using [[VarOwner.mkStore]] */
 sealed class Store[X <: VarLike, CtorArgs](ctor: CtorArgs => X, name: String = "")
-  extends EventSource[List[X]](SignalKind, name) {
+  extends EventSource[Set[X]](SignalKind, name) {
 
-  underlying.value = Success(List[X]())
-//  val diffs = new Channel[(List[X], List[X])]("diff")
+  underlying.value = Success(Set[X]())
+//  val diffs = new Channel[(Set[X], Set[X])]()
+  val diffs = this.fold((Set[X](),(Set[X](), Set[X]())))((state, event) => {
+    (event, (state._1--event, event--state._1))
+  }).map(_._2)
+//  diffs.observe { x =>
+//    println("ok")
+//    try println(x) catch {case e:Throwable => e.printStackTrace}
+//  }
 
-  def create(args: CtorArgs, name: String = ""): X = {
-    var vari: Option[X] = None
+  def creates(args: Iterable[CtorArgs]): Iterable[X] = {
+    var vari: Iterable[X] = Seq()
     withTransaction { tx =>
-      vari = Some(ctor(args))
-      underlying.formula = () => underlying.value.get ++ Seq(vari.get)
-//      diffs.send((List(), List(vari.get)))
+      vari = args.map(ctor)
+      underlying.formula = () => underlying.value.get ++ vari
       tx.markSource(underlying)
     }
-    vari.get
+//    diffs.send((Set(), vari.toSet))
+    vari
   }
 
-  def remove(minus: List[X]): Unit = {
-    underlying.formula = () => underlying.value.get.filter(!minus.contains(_))
-//    diffs.send((minus, List()))
-    minus.flatMap(_.getEventsources).foreach(_.underlying.freeze())
+  def create(args: CtorArgs): X = creates(Some(args)).toSeq.apply(0)
+
+  def remove(minus: Iterable[X]): Unit = {
+    val minus_ = minus.toSet
+    underlying.formula = () => underlying.value.get.filter(!minus_.contains(_))
+//    diffs.send((minus_, Set()))
+    minus_.flatMap(_.getEventsources).foreach(_.underlying.freeze())
     withTransaction(_.markSource(underlying))
   }
+
+//  def diffFold[Y](init: Y)(func: (Y,Set[X],Set[X]) => Y): Rx[Y] =
+//    diffs.fold[Y](init)((state, event) => func(state, event._1, event._2))
 
 //  /** only do this if func is expensive. */
 //  def mapmap[Y](func: X => Y): Rx[List[Y]] = {
