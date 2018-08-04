@@ -46,8 +46,10 @@ private[drx] object withTransaction {
 
 /** this context implements glitch-freeness */
 private class Transaction {
-  def markSource(it: InternalRx[_]): Unit = if (!dirtySources.add(it))
-    throw new RuntimeException("variable can only be set once per transaction.")
+  def markSource(it: InternalRx[_]): Unit = {
+    if (!dirtySources.add(it))
+      throw new RuntimeException("variable "+it.id+" can only be set once per transaction.")
+  }
   def markRx(it: InternalRx[_]): Unit =
 //    if (it.ins.forall(clean.contains)) ready += it else
     if (!dirty.contains(it)) dirty.offer(it)
@@ -69,13 +71,17 @@ private class Transaction {
     dirtySources.clear()
 
     processAllLowerTo(Int.MaxValue)
+    debug.writeToDisk()
 
     clean.clear()
     effects.foreach(_ ())
     effects.clear()
     if (LOG) { println(log); log = "" }
     if (dirtySources.nonEmpty || dirty.size() != 0) processChanges(getValueOf)
-    else { println(); getValueOf.map(_.value) }
+    else {
+      if (LOG) println()
+      getValueOf.map(_.value)
+    }
   }
 
   private[drx] def tryGetValidValue[X](rx: InternalRx[X], outer: Option[InternalRx[_]]): Try[X] = {
@@ -137,5 +143,5 @@ private class Transaction {
     scala.collection.JavaConverters.asScalaIterator(queue.iterator()).toSet
   private def str(sig: InternalRx[_]): String = sig.level + ":" + sig.id
   private var log = ""
-  private val LOG = false
+  private val LOG = true
 }

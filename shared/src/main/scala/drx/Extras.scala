@@ -2,7 +2,7 @@ package drx
 
 object Extras {
   /* allow folds */
-  def lazyExtensionAttr[X,Y](func: (X) => Y, name: String=""): (X) => Y = {
+  def lazyExtAttr[X,Y](func: (X) => Y, name: String=""): (X) => Y = {
     val cache = new platform.platform.WeakMap[X, Y]()
     (x: X) => { var neednew = ""
       val tmp = cache.get(x).getOrElse(internals.activeRx.withValue(None) {

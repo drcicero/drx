@@ -6,36 +6,34 @@ import scala.util.Try
 
 /** create using [[VarOwner.mkStore]] */
 sealed class Store[X <: VarLike, CtorArgs](ctor: CtorArgs => X, name: String = "")
-  extends EventSource[Set[X]](SignalKind, name) {
+  extends EventSource[Seq[X]](SignalKind, name) {
 
-  underlying.value = Success(Set[X]())
+  underlying.value = Success(Seq[X]())
 //  val diffs = new Channel[(Set[X], Set[X])]()
   val diffs = this.fold((Set[X](),(Set[X](), Set[X]())))((state, event) => {
-    (event, (state._1--event, event--state._1))
-  }).map(_._2)
+    (event.toSet, (state._1--event, event.toSet--state._1))
+  }).map(_._2).changes()
+//  diffs.observe { it => println("change " + it ) }
 //  diffs.observe { x =>
 //    println("ok")
 //    try println(x) catch {case e:Throwable => e.printStackTrace}
 //  }
 
-  def creates(args: Iterable[CtorArgs]): Iterable[X] = {
+  def update(plus: Iterable[CtorArgs], minus: Iterable[X]): Iterable[X] = {
     var vari: Iterable[X] = Seq()
-    withTransaction { tx =>
-      vari = args.map(ctor)
-      underlying.formula = () => underlying.value.get ++ vari
-      tx.markSource(underlying)
-    }
-//    diffs.send((Set(), vari.toSet))
+    val minus_ = minus.toSeq
+    vari = plus.map(ctor)
+    underlying.formula = () => underlying.value.get.filter(!minus_.contains(_)) ++ vari
+    withTransaction(_.markSource(underlying))
+    minus_.flatMap(_.getEventsources).foreach(_.underlying.freeze())
     vari
   }
 
-  def create(args: CtorArgs): X = creates(Some(args)).toSeq.apply(0)
-
-  def remove(minus: Iterable[X]): Unit = {
-    val minus_ = minus.toSet
-    underlying.formula = () => underlying.value.get.filter(!minus_.contains(_))
-//    diffs.send((minus_, Set()))
-    minus_.flatMap(_.getEventsources).foreach(_.underlying.freeze())
+  def creates(args: Iterable[CtorArgs]): Iterable[X] = update(args, None)
+  def create(args: CtorArgs): X = update(Some(args), None).toSeq.apply(0)
+  def remove(minus: Iterable[X]): Unit = update(None, minus)
+  override def fire(newValue: Seq[X]): Unit = {
+    underlying.formula = () => underlying.value.get ++ newValue
     withTransaction(_.markSource(underlying))
   }
 
@@ -54,12 +52,12 @@ sealed class Store[X <: VarLike, CtorArgs](ctor: CtorArgs => X, name: String = "
 //    }
 //  }
 
-  override private[drx] def getEventsources: Set[EventSource[_]] =
-    underlying.value.get.flatMap(_.getEventsources).toSet[EventSource[_]]
+  override /*private[drx]*/ def getEventsources: Seq[EventSource[_]] =
+    underlying.value.get.flatMap(_.getEventsources)
 }
 
 trait VarOwner extends VarLike {
-  protected val children: mutable.Set[VarLike] = mutable.Set()
+  protected val children: mutable.ListBuffer[VarLike] = mutable.ListBuffer()
 
   def mkSource[X](name: String = ""): Channel[X] = {
     val result = new Channel[X](name)
@@ -79,6 +77,6 @@ trait VarOwner extends VarLike {
     result
   }
 
-  private[drx] def getEventsources: Set[EventSource[_]] =
-    children.toSet[VarLike].flatMap(_.getEventsources)
+  /*private[drx]*/ def getEventsources: Seq[EventSource[_]] =
+    children.toSeq.flatMap(_.getEventsources)
 }

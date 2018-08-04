@@ -14,7 +14,7 @@ private[drx] class InternalRx[X] private[drx]
 {
 //  private[drx] val dummy = Array.tabulate(1000 * 100)( i => i ) // TODO
 
-  val id: String = "" + internals.count + name
+  val id: String = "" + internals.count + "_" + name
   private[drx] def underlying: InternalRx[X] = this
   private[drx] var debugEvaluating: Boolean = false
   debug.debugRxs(this) = Unit // for debugging
@@ -73,14 +73,15 @@ private[drx] class InternalRx[X] private[drx]
 
   private[drx] def reeval(): Unit = {
     debugEvaluating = true
-    debug.writeToDisk()
+//    debug.writeToDisk()
 
     // during evaluation of formula, the 'ins' will be filled with our dependencies.
-    val tmpIn = Set() ++ ins; ins.clear() // clear ins, as they will be readded through the next line
+    val tmpIn = Set() ++ ins; ins.clear()
     val newValue = internals.activeRx.withValue(Some(this)) { Try(formula()) }
     (tmpIn -- ins).foreach(_.unpushto(this)) // stop pushing from dependencies, we do not depend on anymore
 
-    runatleastonce = true
+//    println("" + this.id +" "+ ins)
+    internals.activeRx.value.foreach { outer => if (outer.isActive) runatleastonce = true }
 
     // If the newValue does not signify to Abort evaluation (EmptyStream) and
     // the value actually changed, compared to the last value.
@@ -92,6 +93,12 @@ private[drx] class InternalRx[X] private[drx]
       // if we are currently pushing, we mark all outgoings for reevaluation, too.
       outs.foreach(tx.markRx) // if (mode == PushMode)
 
+      // if there are no outs, throw? // TODO makes no sense if lazy
+      value match {
+        case Failure(e) => e.printStackTrace
+        case _ => 
+      }
+
       // if the current reactive is a stream, we have to forget our value
       // after the transaction, by setting it to Abort.
       if (remember == StreamKind) tx.runLater(() => value = internals.TheEmptyStream )
@@ -102,7 +109,7 @@ private[drx] class InternalRx[X] private[drx]
     //// TODO
     // if (ins.isEmpty) this.kill()
 
-    debug.writeToDisk()
+//    debug.writeToDisk()
     debugEvaluating = false
   }
 

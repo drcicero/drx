@@ -3,12 +3,13 @@ package drx
 import scala.util.Success
 
 trait VarLike extends AnyRef {
-  private[drx] def getEventsources: Set[EventSource[_]]
+  /*private[drx]*/ def getEventsources: Seq[EventSource[_]]
 }
 
 abstract class EventSource[X](remember: Remember, name: String)
   extends ProxyRx[X](remember, name) with VarLike {
   underlying.forceActive = true
+  def fire(newValue: X): Unit
 }
 
 class Channel[X](name: String = "") extends EventSource[X](StreamKind, name) {
@@ -17,13 +18,15 @@ class Channel[X](name: String = "") extends EventSource[X](StreamKind, name) {
     real.formula = () => newValue
     withTransaction { tx =>
       tx.markSource(real)
+      // TODO is this neccessary or already done by StreamKind?
       tx.runLater { () =>
         real.value = internals.TheEmptyStream
         real.formula = () => internals.TheEmptyStream.get
       }
     }
   }
-  private[drx] def getEventsources: Set[EventSource[_]] = Set(this)
+  override def fire(newValue: X): Unit = send(newValue)
+  /*private[drx]*/ def getEventsources: Seq[EventSource[_]] = Seq(this)
 }
 
 class Variable[X](init: X, name: String = "") extends EventSource[X](SignalKind, name) {
@@ -33,8 +36,9 @@ class Variable[X](init: X, name: String = "") extends EventSource[X](SignalKind,
     underlying.formula = () => newValue
     withTransaction(_.markSource(underlying))
   }
+  override def fire(newValue: X): Unit = set(newValue)
   def transform(transformer: X => X): Unit = set(transformer(underlying.value.get))
-  private[drx] def getEventsources: Set[EventSource[_]] = Set(this)
+  /*private[drx]*/ def getEventsources: Seq[EventSource[_]] = Seq(this)
 }
 
 // TODO make observers and sources declarative by collecting them if unreachable
@@ -42,7 +46,7 @@ class Variable[X](init: X, name: String = "") extends EventSource[X](SignalKind,
 // into proxies/wrappers that only weakref the real Rx.
 // Then we can kill/stop them in the finalizer.
 class ProxyRx[X](isEvent: Remember, name: String) extends Rx[X] {
-  private[drx] var underlying: InternalRx[X] = new InternalRx[X](isEvent, name)
+  /*private[drx]*/ var underlying: InternalRx[X] = new InternalRx[X](isEvent, name)
   override def id: String = underlying.id
   override def finalize(): Unit = { underlying.freeze(); underlying = null }
 }

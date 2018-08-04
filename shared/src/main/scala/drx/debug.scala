@@ -13,22 +13,22 @@ object debug {
     def size = 0
   }
 
-  def serialize(x: Any): (String, String) = {
-    val tmp = x match {
-      case Failure(e) if e.isInstanceOf[EmptyStream] => "/"
-      case Success(y)           => serialize(y)._2
-      case x: InternalRx[_]     => x.id
-      // case x: Node => x.outerHTML.replace('"', "'")
-      case x: mutable.Map[_, _]      =>
-        "{" + x.map {
-          case (a, b) => "" + serialize(a)._2 + ":" + serialize(b)._2
-        }.mkString(", ") + "}"
-      case x: mutable.Traversable[_] =>
-        "[" + x.map(it => serialize(it)._2).mkString(", ") + "]"
-      case _ => ("" + x).replaceAllLiterally("\"", "\\\"")
-    }
-    if (tmp.length < 10) (tmp,tmp)
-    else (tmp.slice(0,7) + "...",tmp)
+  def ellipsis(tmp: String) = 
+    if (tmp.length < 10) tmp
+    else tmp.slice(0,7) + "..."
+
+  def serialize(x: Any): String = x match {
+    case Failure(e) if e.isInstanceOf[EmptyStream] => "/"
+    case Success(y)           => serialize(y)
+    case x: InternalRx[_]     => x.id
+    // case x: Node => x.outerHTML.replace('"', "'")
+    case x: mutable.Map[_, _]      =>
+      "{" + x.map {
+        case (a, b) => "" + serialize(a) + ":" + serialize(b)
+      }.mkString(", ") + "}"
+    case x: mutable.Traversable[_] =>
+      "[" + x.map(it => serialize(it)).mkString(", ") + "]"
+    case _ => ("" + x).replaceAllLiterally("\"", "\\\"")
   }
 
   def getthem(rx: InternalRx[_], acc: mutable.Set[InternalRx[_]]): Unit = if (!acc.contains(rx)) {
@@ -51,8 +51,6 @@ object debug {
 
   def stringit(root: Set[_ <: InternalRx[_]] = Set()): String = {
 
-    val sigs = transitivehull(root ++ debugRxs.keys)
-
     def color(rx: InternalRx[_]): String =
       "color=" + (
         if (rx.forceActive) "black" // "\"#ddaa00\""
@@ -72,13 +70,35 @@ object debug {
 //        case _                 => "shape=diamond"
 //      })
 
-    def str(rx: InternalRx[_]): String = rx.hashCode().toString
+    def form(rx: InternalRx[_]): String = rx.id.split("_",2)(1) // rx.hashCode().toString
+    def str(rx: InternalRx[_]): String = '"'+rx.id.split("_",2)(1)+"_"+rx.level+'"'
+//    def str(rx: InternalRx[_]): String = rx.hashCode().toString
+
+    def mapIt(kv: (String, collection.immutable.Set[InternalRx[_]])) = {
+      val (k,l) = kv
+      (k, (
+        "" + l.size + "x " + form(l.head),
+        ellipsis(l map (it => serialize(it.value)) mkString ", "),
+        l map (it => serialize(it.value)) mkString "\n",
+        l flatMap (it => it.getIns filter (father => !(father.getOuts contains it))),
+        l flatMap (_.getOuts),
+        if (l exists (it => withTransaction.activeCtx.value.exists(_.clean.contains(it))))
+          "fillcolor=gray" else "fillcolor=white"
+      ))
+    }
+
+    val sigs = transitivehull(root ++ debugRxs.keys)
+    val gsigs = sigs.groupBy((x) => str(x)).map(mapIt)
 
       // "\"" + rx.id +"\\n"+ serialize(rx.value) + "\"" // "\"%s\\n%d\"".format(rx.id, rx.level)
 
     val ranks = sigs.groupBy(x => x.level)
 
     ("digraph {\n" +
+
+      "\ngraph [ fontsize=8 ]\n" +
+      "edge [ fontsize=8 ]\n" +
+      "node [ fontsize=8 ]\n\n" +
 
       ranks.map(x => "{ rank=same %s %s }\n".format(
         x._1, x._2.map(str).mkString(" ")
@@ -87,31 +107,50 @@ object debug {
       ranks.map(x => s"${x._1} [shape=none]\n").mkString("") +
       ranks.keys.toList.sorted.mkString(" -> ") + " [arrowhead=none]\n" +
 
-      sigs.map {it => (
+
+      gsigs.map {case (k,(label, value1, value2, ins, outs, color)) => (
 
         "  %s [%s,label=\"%s\",tooltip=\"%s\",shape=rectangle,style=filled,fixedsize=shape]\n"
-          .format(str(it), color(it), it.id +"\\n"+ serialize(it.value)._1, serialize(it.value)._2) +
+          .format(k, color, label +"\\n"+ value1, value2) +
 
-          it.getIns.filter { father => !father.getOuts.contains(it) }
-            .map { dep =>
-              "  %s -> %s [color=gray dir=back]".format(str(dep), str(it))
-            }.mkString("\n") +
-
-          it.getOuts.map { child =>
-            "  %s -> %s [dir=both]".format(str(it), str(child))
+          ins.map { dep =>
+            "  %s -> %s [color=gray dir=back]".format(str(dep), k)
           }.mkString("\n") +
 
-//          (it match {
-//            case it: Store[_,_] => // oops
-//              it.getEventsources.map { child =>
-//                "  %s -> %s [color=aqua]".format(str(it), str(child.underlying))
-//              }.mkString("\n")
-//            case _ => ""
-//          })+
+          outs.map { child =>
+            "  %s -> %s [dir=both]".format(k, str(child))
+          }.mkString("\n") +
 
           "\n"
 
         )}.mkString("\n") + "\n" +
+
+
+//      sigs.map {it => (
+
+//        "  %s [%s,label=\"%s\",tooltip=\"%s\",shape=rectangle,style=filled,fixedsize=shape]\n"
+//          .format(str(it), color(it), form(it) +"\\n"+ serialize(it.value)._1, serialize(it.value)._2) +
+
+//          it.getIns.filter { father => !father.getOuts.contains(it) }
+//            .map { dep =>
+//              "  %s -> %s [color=gray dir=back]".format(str(dep), str(it))
+//            }.mkString("\n") +
+
+//          it.getOuts.map { child =>
+//            "  %s -> %s [dir=both]".format(str(it), str(child))
+//          }.mkString("\n") +
+
+////          (it match {
+////            case it: Store[_,_] => // oops
+////              it.getEventsources.map { child =>
+////                "  %s -> %s [color=aqua]".format(str(it), str(child.underlying))
+////              }.mkString("\n")
+////            case _ => ""
+////          })+
+
+//          "\n"
+
+//        )}.mkString("\n") + "\n" +
 
       "\n}\n\n")
   }
@@ -121,7 +160,8 @@ object debug {
 
   private[drx] val debugRxs = platform.platform.PotentialWeakHashMap[InternalRx[_], Unit]()
 
-  def writeToDisk(): Unit = platform.platform.writeToDisk()
+  var hook: ()=>Unit = {() => }
+  def writeToDisk(): Unit = {hook(); platform.platform.writeToDisk()}
 
   def printless(): Unit = {
     println(platform.platform.heapSize())

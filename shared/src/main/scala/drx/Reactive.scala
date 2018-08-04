@@ -11,25 +11,33 @@ trait Rx[X] {
   // COMBINATORS
 
   /** create a dependent reactive. */
-  def map[Y](func: X => Y, name: String = ""): Rx[Y] = {
-    val result = new InternalRx[Y](underlying.remember, "m") with Rx[Y]
+  def map[Y](func: X => Y, name: String = "")
+           (implicit f: sourcecode.File, l: sourcecode.Line): Rx[Y] = {
+    val result = new InternalRx[Y](underlying.remember, Signal.nameit("m",f,l)) with Rx[Y]
     result.formula = () => func(this.abstractget)
     result
   }
 
   /** turn reactive into a stream of changes. */
-  def changes(name: String = "ch"): Rx[X] = {
-    val result = new InternalRx[X](StreamKind, name) with Rx[X]
-    result.formula = () => this.abstractget
+  def changes(name: String = "ch")
+           (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
+    val result = new InternalRx[X](StreamKind, Signal.nameit(name,f,l)) with Rx[X]
+    result.father = Some(this.underlying)
+    withTransaction(_.runLater { () =>
+      result.formula = () => this.abstractget
+      result.observe {x => println("change " + x) }
+    })
     result
   }
 
   /** turn reactive into a signal, with initial value. */
-  def hold(init: X, name: String = "hd"): Rx[X] =
-    fold(init)( (_, ev) => ev )
+  def hold(init: X, name: String = "hd")
+           (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] =
+    fold(init)( (_, ev) => ev )(f,l)
 
-  def mkFold[Y](init: Y)(comb: (Y, X) => Y): Rx[Y] with Sink[Y] = {
-    val result = new InternalRx[Y](SignalKind, "f") with Rx[Y] with Sink[Y]
+  def mkFold[Y](init: Y)(comb: (Y, X) => Y)
+           (implicit f: sourcecode.File, l: sourcecode.Line): Rx[Y] = {
+    val result = new InternalRx[Y](SignalKind, Signal.nameit("f",f,l)) with Rx[Y] //with Sink[Y]
     result.value = Success(init)
     result.formula = () => {
       val tmp = this.abstractget
@@ -42,9 +50,10 @@ trait Rx[X] {
 
   /** create a stateful signal, that gets its incoming value and its previous value
     * to create the next value. fails inside a signal. */
-  def fold[Y](init: Y)(comb: (Y, X) => Y): Rx[Y] = {
-    val result = mkFold(init)(comb)
-    result.start()
+  def fold[Y](init: Y)(comb: (Y, X) => Y)
+             (implicit f: sourcecode.File, l: sourcecode.Line): Rx[Y] = {
+    val result = mkFold(init)(comb)(f, l)
+    result.observe {x => println("fold " + x) }
     result
   }
 
@@ -52,8 +61,11 @@ trait Rx[X] {
     * then, later and outside of signals you can start the callback.
     * see the accompanying javafx and scalajshtml renderer for an example to use this.
     * see also [[mkObs]]. */
-  def mkObs(callback: X => Unit): Sink[Unit] = {
-    val result = new InternalRx[Unit](StreamKind, "o") with Sink[Unit]
+  def mkObs(callback: X => Unit, onStart: () => Unit = ()=>{})
+           (implicit f: sourcecode.File, l: sourcecode.Line): Sink[Unit] = {
+    val result = new InternalRx[Unit](StreamKind, Signal.nameit("o",f,l)) with Sink[Unit] {
+      override def onstart(): Unit = onStart()
+    }
     result.formula = () => {
       val tmp = this.abstractget
       withTransaction(_.runLater(() => callback(tmp)))
@@ -63,14 +75,16 @@ trait Rx[X] {
 
   /** creates a callback, that immediately starts running on each change.
     * fails inside a signal. see also [[mkObs]]. */
-  def observe(callback: X => Unit): Sink[Unit] = {
-    val result = mkObs(callback)
+  def observe(callback: X => Unit)
+           (implicit f: sourcecode.File, l: sourcecode.Line): Sink[Unit] = {
+    val result = mkObs(callback)(f, l)
     result.start()
     result
   }
 
-  def snapshot(stream: Rx[_]): Rx[X] = {
-    val result = new InternalRx[X](StreamKind, "") with Rx[X]
+  def snapshot(stream: Rx[_])
+           (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
+    val result = new InternalRx[X](StreamKind, Signal.nameit("snap",f,l)) with Rx[X]
     result.formula = () => {
       stream.abstractget
       this.abstractget
@@ -158,10 +172,14 @@ trait Rx[X] {
 // Sinks
 
 trait Sink[X] extends InternalRx[X] {
+  def onstart(): Unit = {}
+
   private[drx] override def freeze(): Unit = {
     stop()
     super.freeze()
   }
+
+//  def isForced(): Boolean = forceActive
 
   def start(): Unit = {
     if (internals.activeRx.value.isDefined) throw new RuntimeException(
@@ -169,12 +187,16 @@ trait Sink[X] extends InternalRx[X] {
       "That may lead to memory leaks.")
 
     if (!forceActive) {
+      println("  o " + id)
+      onstart()
       forceActive = true
       withTransaction(_.markRx(this))
     }
   }
 
   def stop(): Unit = if (forceActive) {
+    println("  u " + id)
+
     forceActive = false
     getIns.foreach(_.unpushto(this))
   }
@@ -186,9 +208,16 @@ trait Sink[X] extends InternalRx[X] {
 /** create a dynamic signal. you may call _.get on other signals inside the
   * closure to get and depend on their value. */
 object Signal {
-  def apply[X](formula: => X, name: String = ""): Rx[X] = {
-    val result = new InternalRx[X](SignalKind, name) with Rx[X]
+  def apply[X](formula: => X, name: String = "")
+           (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
+    val result = new InternalRx[X](SignalKind, nameit(name,f,l)) with Rx[X]
     result.formula = formula _
     result
+  }
+
+  private[drx] def nameit(s: String, f: sourcecode.File, l: sourcecode.Line) = {
+    val ff = f.value.substring(f.value.lastIndexOf("/")+1)
+    val fff = ff.substring(0, ff.indexOf("."))
+    s"${s}_$fff:${l.value}"
   }
 }
