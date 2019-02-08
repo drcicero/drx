@@ -31,8 +31,9 @@ object platform {
     .listFiles(f => f.isFile && (f.getName.endsWith(".svg") || f.getName.endsWith(".dot")))
     .foreach(f => f.delete())
   var i = 0
-  def writeToDisk(): Unit = {
+  def writeToDisk(desc: String): Unit = {
     i += 1
-    Files.write(Paths.get(s"debuggraphs/graph$i.dot"), drx.debug.stringit().getBytes())
+    Files.write(Paths.get(s"debuggraphs/graph$i.dot"), drx.debug.stringit(desc=desc).getBytes())
   }
+
 }

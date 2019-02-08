@@ -22,5 +22,5 @@ object platform {
     def set(key: Key, value: Value): Unit = js.native
   }
 
-  def writeToDisk(): Unit = {}
+  def writeToDisk(desc:String=""): Unit = {}
 }

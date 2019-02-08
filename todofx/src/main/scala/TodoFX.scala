@@ -1,20 +1,17 @@
 //import javafx.collections.ObservableList
-import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Paths}
-import javafx.application.{Platform, Application}
+import java.util.concurrent.ThreadLocalRandom
+
+import javafx.application.Application
 import javafx.geometry.Insets
 import javafx.scene.control.{Button, CheckBox, Label, TextField}
 import javafx.scene.layout.{HBox, Pane, StackPane, VBox}
 import javafx.scene.{Node, Parent, Scene}
 import javafx.stage.Stage
-
 import drx._
 import main.Task
 
-import scala.collection.mutable
-
 object Rendering {
-  trait MutatingValue extends Node { var observer: Sink[_] = _ }
+  trait MutatingValue extends Node { var observer: Obs[_] = _ }
 
   def replaceLastChild(medium: Pane, newelem: Node): Unit = {
     foreachObs(medium)(_.stop())
@@ -23,7 +20,7 @@ object Rendering {
     if (medium.isVisible) foreachObs(medium)(_.start())
   }
 
-  def foreachObs(fc: Parent)(f: Sink[_] => Unit): Unit = {
+  def foreachObs(fc: Parent)(f: Obs[_] => Unit): Unit = {
     fc.getChildrenUnmodifiable.forEach { it =>
       it match {
         case x: MutatingValue => f(x.observer)
@@ -51,36 +48,56 @@ object Rendering {
 //  }
 }
 
+object Main {
+  def main(args: Array[String]): Unit =
+    Application.launch(classOf[TodoFX], args:_*)
+}
+
 class TodoFX extends Application {
-  import Rendering.SignalToNode
+  override def start(primaryStage: Stage): Unit = {
+    import Rendering.SignalToNode
 
-  override def start(primaryStage: Stage): Unit = transact {
-    val todoTextColor: Variable[String] = new Variable("green", "col")
-    val model: Store[Task, String] = new Store((name: String) => new Task(name), "model")
+    val todoTextColor = new Var("green", "col")
+    todoTextColor.map(_+1).map(_+1).scan("") {(acc, x) => println("todoTextColor " + x); acc +","+ x}
+    todoTextColor set "blue"
+    todoTextColor set "red"
 
-    def dview(task: Task): javafx.scene.Node = new HBox(10, Signal {
-      val checkbox = new CheckBox()
-      checkbox.setSelected(task.done.get)
-      checkbox.setOnAction(_ => task.done.transform(!_))
-      checkbox
-    }.drender, Signal {
-      val field = new TextField(task.title.get)
-      field.setOnAction(_ => task.title.set(field.getText()))
-      field
-    }.drender
-    //, task.folded.map(x => new Label(x.toString)).drender
+    val model = new IncMap[Task]("model")
+    model.aggregate
+
+    model.diffs observe (x => println("hello " + x))
+    model.aggregate observe (x => println("holla " + x))
+
+    def dview(task: Task): javafx.scene.Node = new HBox(10,
+      Val {
+        val checkbox = new CheckBox()
+        checkbox.setSelected(task.done.get)
+        checkbox.setOnAction {_ =>
+          println("hello")
+          task.done.transform(!_)
+          println("cello")
+        }
+        checkbox
+      }.drender,
+      Val {
+        val field = new TextField(task.title.get)
+        field.setOnAction(_ => task.title.set(field.getText()))
+        field
+      }.drender
+      //, task.folded.map(x => new Label(x.toString)).drender
     )
 
-    val mapped2 = model
-      .map({ it => it.count(!_.done.get) }, "notdone")
+    val mapped2 = model.aggregate
+      .map({ it => it.values.count(!_.done.get) }, "notdone")
       .map({ it => if (it == 0) "no" else ""+it }, "string")
 
-    val mapped3 = model
-      .map(_.map { task => task.title.get.length }.sum.toString, "charsum")
+    val mapped3 = model.aggregate
+      .map(_.values.map { task => task.title.get.length }.sum.toString, "charsum")
 
     val textfield = new TextField("enter new task here")
     textfield.setOnAction { _ =>
-      model.create(textfield.getText)
+      val x = Task.mk(textfield.getText)
+      model.update(Seq(ThreadLocalRandom.current().nextInt().toString -> x))
       textfield.setText("")
     }
 
@@ -97,7 +114,7 @@ class TodoFX extends Application {
 
       new Label("DO TODOS!"),
 
-      Signal({
+      Val({
         val label = new Label("There are " + mapped2.get + " todos left, " +
           "with a total description length of " + mapped3.get + ".")
         label.setWrapText(true)
@@ -106,23 +123,24 @@ class TodoFX extends Application {
 
       textfield,
 
-      Signal(
-        if (model.get.isEmpty)
+      Val(
+        if (model.aggregate.get.isEmpty)
           new Label("All done! :)")
         else
-          new VBox(10, model.get.map(dview).toList:_*)
+          new VBox(10, model.aggregate.get.values.map(dview).toList:_*)
         , "tasklist").drender,
 
-      Signal(
-        if (model.get.isEmpty)
+      Val(
+        if (model.aggregate.get.isEmpty)
           new Label("")
         else {
           val but = new Button("remove all done todos")
           but.setOnAction(_ =>
-            model.remove(model.sample.filter(_.done.sample)))
+            model.update(model.aggregate.sample.filter(_._2.done.sample).map(x => (x._1, null)).toSeq))
           but
         }, "button").drender
     ):_*)
+
 
     val root = new StackPane()
     root.setPadding(new Insets(10))
@@ -132,12 +150,4 @@ class TodoFX extends Application {
     primaryStage.setScene(new Scene(root, 640, 480))
     primaryStage.show()
   }
-
-  // launch must be inside our Application, because Application.launch
-  // checks that enclosing class is subclass of Application...
-  private[TodoFX] def launchRedirect(args: Array[String]): Unit = Application.launch(args:_*)
-}
-
-object TodoFX {
-  def main(args: Array[String]): Unit = new TodoFX().launchRedirect(args)
 }

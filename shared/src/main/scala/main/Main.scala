@@ -4,7 +4,7 @@ import drx._
 
 /** Created by david on 10.06.17. */
 object Main {
-  private sealed abstract class Tree(var obsid: Sink[_] = null)
+  private sealed abstract class Tree(var obsid: Obs[_] = null)
   private case class Leaf(content: String) extends Tree
   private case class Ast(children: MList) extends Tree
   private type MList = scala.collection.mutable.ListBuffer[Tree]
@@ -12,11 +12,11 @@ object Main {
   private def div(x: Tree*) = {val arr = new MList(); arr++=x; Ast(arr)}
   private def printTree(t: Tree, i: Int = 0): Unit = t match {
     case Leaf(s) => println("|" + "  " * i + "| " + s)
-    case Ast(l) => l.foreach((x) => printTree(x, i+1))
+    case Ast(l) => l.foreach(x => printTree(x, i+1))
   }
 
   private def trender(sig: Rx[_ <: Tree]): Tree = {
-    def forallObs(t: Tree, func: Sink[_] => Unit): Unit = {
+    def forallObs(t: Tree, func: Obs[_] => Unit): Unit = {
       if (t.obsid != null) func(t.obsid)
       t match {
         case Ast(c) => c.foreach(forallObs(_, func))
@@ -34,7 +34,7 @@ object Main {
   }
 
   private def tview(it: Task): Tree =
-    trender(Signal(div(
+    trender(Val(div(
       span(if (it.done.get) "-" else " "),
       span(it.title.get),
       span(if (it.done.get) "-" else " ")
@@ -45,8 +45,9 @@ object Main {
   }
 
   def partOfMain(): Unit = {
-    object state extends VarOwner {
-      val model: Variable[List[Task]] = mkVar(List(), "model")
+    object state {
+      val thingy: Var[Task] = new Var(Task.mk("hey"))
+      val model: Var[Seq[Task]] = new Var(Seq[Task](), "model")
     }
 
     val mapped = state.model
@@ -58,18 +59,18 @@ object Main {
       span("DO TODOs!"),
       div(span("There are "), trender(mapped), span(" todos left")),
 
-      trender(Signal(
+      trender(Val(
         if (state.model.get.isEmpty)
           span("All done! :)")
         else
-          trender(Signal(div(state.model.get.map { it => tview(it) }:_*)))
+          trender(Val(div(state.model.get.map { it => tview(it) }:_*)))
       ))
     )
 
     drx.debug.doit()
 
     for (x <- 1 to 3) {
-      for (x <- 1 to 20) state.model.transform(x => x ++ List(new Task("hello")))
+      for (x <- 1 to 20) state.model.transform(x => x ++ Seq(Task.mk("hello")))
       drx.debug.doit()
 
       for (x <- 1 to 20) state.model.transform(_.tail)
@@ -80,36 +81,33 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
-    val daa = new Variable[Boolean](false)
+    val daa = new Var(false)
     val a = daa.map(!_).map(!_).map(!_).map(!_)
     val b = a.map(!_)
     val c = a.map(!_)
     val d = Extras.zip(c,b).map(_._1)
     val e = d.map(!_)
     val f = e.map(!_)
-    transact {
+    instantly {
       daa set true
       println("interest: " + f.sample + " == true")
     }
 
-    val t1 = new Channel[Boolean]()
+    val t1 = new Var(false)
     val t2 = t1 // .fold(false)((state,ev)=>ev)
 
     val a1 = t2
-      .changes()
       .map(it=>it)
       .map(it=>it)
-      .hold(false)
       .map(it=>it)
       .map(it=>it)
-      .changes()
       .map(it=>it)
       .map(it=>it)
 
     println("interest: " + a1.sample + " == false")
-    t1 send true
+    t1 set true
     println("interest: " + a1.sample + " == true")
-    t1 send false
+    t1 set false
     println("interest: " + a1.sample + " == false")
 
 //    val t3 = new Source[Int]()

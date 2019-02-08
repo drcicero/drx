@@ -13,12 +13,12 @@ object debug {
     def size = 0
   }
 
-  def ellipsis(tmp: String) = 
+  def ellipsis(tmp: String): String =
     if (tmp.length < 10) tmp
     else tmp.slice(0,7) + "..."
 
   def serialize(x: Any): String = x match {
-    case Failure(e) if e.isInstanceOf[EmptyStream] => "/"
+    case Failure(e) if e.isInstanceOf[EmptyValExc] => "/"
     case Success(y)           => serialize(y)
     case x: InternalRx[_]     => x.id
     // case x: Node => x.outerHTML.replace('"', "'")
@@ -49,56 +49,68 @@ object debug {
 //    set.flatMap(_.getOuts).collect { case (x:Observer[_]) => x }.toSet
 //  }
 
-  def stringit(root: Set[_ <: InternalRx[_]] = Set()): String = {
+  def stringit(root: Set[_ <: InternalRx[_]] = Set(), desc: String = ""): String = {
 
     def color(rx: InternalRx[_]): String =
       "color=" + (
-        if (rx.forceActive) "black" // "\"#ddaa00\""
-        else if (rx.isActive) "black" // "\"#aadd00\""
+        if (rx.getMode==Pushing) "black" // "\"#aadd00\""
         else "white"
       ) +
       ",fillcolor=" + (
-        if (rx.debugEvaluating) "\"#ddaa00\"" // orange
+        if (rx.shouldPush) "\"orange\""
+        else if (rx.debugEvaluating) "\"#ddaa00\"" // orange
 //        else if (withTransaction.activeCtx.value.exists(_.ready.contains(rx))) "\"#dddd00\"" // yellow
-        else if (withTransaction.activeCtx.value.exists(_.dirty.contains(rx))) "\"#aadd00\"" // green
-        else if (withTransaction.activeCtx.value.exists(_.clean.contains(rx))) "\"gray\""
-        else if (rx.isFrozen) "\"#00ddaa\"" // "gray"
+        else if (withInstant.activeCtx.value.exists(x =>
+          x.pastDirtySources.contains(rx) || x.dirty.contains(rx))) "\"#aadd00\"" // green
+        else if (withInstant.activeCtx.value.exists(_.clean.contains(rx))) "\"gray\""
+        else if (rx.getMode==Frozen) "\"#00ddaa\"" // "gray"
         else "white")
 //      + "," + (rx match {
-//        case _: EventSource[_] => "shape=triangle"
-//        case _: Sink[_]        => "shape=invtriangle"
-//        case _                 => "shape=diamond"
+//        case _: Var[_]  => "shape=triangle"
+//        case _: Sink[_] => "shape=invtriangle"
+//        case _          => "shape=diamond"
 //      })
 
-    def form(rx: InternalRx[_]): String = rx.id.split("_",2)(1) // rx.hashCode().toString
-    def str(rx: InternalRx[_]): String = '"'+rx.id.split("_",2)(1)+"_"+rx.level+'"'
-//    def str(rx: InternalRx[_]): String = rx.hashCode().toString
+    def form(rx: InternalRx[_]): String = if (rx.id.contains("_")) rx.id.split("_",2)(1) else rx.id // rx.hashCode().toString
+//    def str(rx: InternalRx[_]): String = '"'+rx.id.split("_",2)(1)+"_"+rx.level+'"'
+    def str(rx: InternalRx[_]): String = rx.hashCode().toString
 
     def mapIt(kv: (String, collection.immutable.Set[InternalRx[_]])) = {
       val (k,l) = kv
+      def intime(f: Instant => mutable.Set[InternalRx[_]])(it: InternalRx[_]) =
+        withInstant.activeCtx.value.exists(f(_) contains it)
       (k, (
-        "" + l.size + "x " + form(l.head),
+        "" + l.size + "x " + form(l.head) +" ("+ l.map(_.debugCtr).sum + ")",
         ellipsis(l map (it => serialize(it.value)) mkString ", "),
         l map (it => serialize(it.value)) mkString "\n",
         l flatMap (it => it.getIns filter (father => !(father.getOuts contains it))),
         l flatMap (_.getOuts),
-        if (l exists (it => withTransaction.activeCtx.value.exists(_.clean.contains(it))))
-          "fillcolor=gray" else "fillcolor=white"
+        "fillcolor="+(
+          if (l exists intime(_.pastDirtySources)) "\"#aadd00\""
+          else if (l.exists(_.shouldPush)) "ivory3"
+          else if (l exists intime(_.clean)) "ivory2"
+          else "white")+
+        ",color="+(
+          if (l exists (x => x.value.isSuccess)) "black"
+          else if (l exists (x => x.value.failed.get.isInstanceOf[EmptyValExc])) "none"
+          else "red")
       ))
     }
 
     val sigs = transitivehull(root ++ debugRxs.keys)
-    val gsigs = sigs.groupBy((x) => str(x)).map(mapIt)
+    val gsigs = sigs.groupBy(str).map(mapIt)
 
       // "\"" + rx.id +"\\n"+ serialize(rx.value) + "\"" // "\"%s\\n%d\"".format(rx.id, rx.level)
 
     val ranks = sigs.groupBy(x => x.level)
 
-    ("digraph {\n" +
+    ("digraph {\n\n" +
 
-      "\ngraph [ fontsize=8 ]\n" +
+      "graph [ fontsize=8 ]\n" +
       "edge [ fontsize=8 ]\n" +
-      "node [ fontsize=8 ]\n\n" +
+      "node [ fontsize=8 ]\n" +
+      "labelloc=\"t\";\n" +
+      "label=\""+ desc.replace("\"", "'") +"\"; \n\n" +
 
       ranks.map(x => "{ rank=same %s %s }\n".format(
         x._1, x._2.map(str).mkString(" ")
@@ -114,7 +126,7 @@ object debug {
           .format(k, color, label +"\\n"+ value1, value2) +
 
           ins.map { dep =>
-            "  %s -> %s [color=gray dir=back]".format(str(dep), k)
+            "  %s -> %s [fontcolor=gray dir=back]".format(str(dep), k)
           }.mkString("\n") +
 
           outs.map { child =>
@@ -142,7 +154,7 @@ object debug {
 
 ////          (it match {
 ////            case it: Store[_,_] => // oops
-////              it.getEventsources.map { child =>
+////              it.getVars.map { child =>
 ////                "  %s -> %s [color=aqua]".format(str(it), str(child.underlying))
 ////              }.mkString("\n")
 ////            case _ => ""
@@ -160,8 +172,11 @@ object debug {
 
   private[drx] val debugRxs = platform.platform.PotentialWeakHashMap[InternalRx[_], Unit]()
 
-  var hook: ()=>Unit = {() => }
-  def writeToDisk(): Unit = {hook(); platform.platform.writeToDisk()}
+  var hook: String=>Unit = { _ => }
+  def writeToDisk(str: String): Unit = {
+    hook(str)
+    platform.platform.writeToDisk(str)
+  }
 
   def printless(): Unit = {
     println(platform.platform.heapSize())

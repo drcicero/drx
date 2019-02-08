@@ -15,7 +15,7 @@ ul { list-style: none; padding: 0; }
 input { font-size: 1rem; padding: 1rem; border: none; width: 100%; box-sizing: border-box; }
 .task { padding: .5em; background: white; margin: .5rem 0; padding: 0 .5rem; }
 .task > input:nth-child(1) { width: 9% }
-.task > input:nth-child(2) { width: calc(100% - 3em); background: none }
+.task > input:nth-child(2) { width: calc(100% - 5em); background: none }
 .done { background: #eee; opacity: .5; }
 .done > input { text-decoration: line-through; }
 
@@ -28,8 +28,10 @@ body { position: relative; }
   </style>
 
 </head><body>
-
+  <a href=/quit>quit</a>
   <div id="svg-container"></div>
   <script src="./viz.js"></script>
   <script src="./todojs/target/scala-2.12/todojs-fastopt.js"></script>
+
+  <div id="main"></div>
 </body></html>
