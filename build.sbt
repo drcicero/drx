@@ -1,37 +1,37 @@
 import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 import org.scalajs.jsenv.nodejs.NodeJSEnv
 
+target := file("/tmp/sbt") / name.value
 scalaVersion := "2.12.8"
 
 lazy val todojs = (project in file("todojs"))
   .dependsOn(allJS)
   .enablePlugins(ScalaJSPlugin)
-  .settings( name := "todojs",
-    cfg.warn, cfg.scalatags, cfg.upickle,
+  .settings( name := "todojs", cfg.common,
+    cfg.scalatags, cfg.upickle,
     scalaJSUseMainModuleInitializer := true,
     scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
   )
 
 lazy val server = (project in file("server"))
-  .settings( name := "server",
-    cfg.warn, cfg.frk, cfg.scalatags, cfg.upickle, cfg.akka,
+  .settings( name := "server", cfg.common,
+    cfg.scalatags, cfg.upickle, cfg.akka,
     connectInput in run := true)
 
 lazy val todofx = (project in file("todofx"))
   .dependsOn(allJVM)
-  .settings( name := "todofx",
-    cfg.warn, cfg.frk, cfg.javafx)
+  .settings( name := "todofx", cfg.common, cfg.javafx)
 
 lazy val all = crossProject(JSPlatform, JVMPlatform)
   .in(file("."))
   .settings( name := "all",
-    cfg.warn, cfg.scalatags, cfg.upickle, cfg.source)
-  .jsSettings( mainClass in (Compile, run) := Some("Main2"),
+    cfg.scalatags, cfg.upickle, cfg.source)
+  .jsSettings( mainClass in (Compile, run) := Some("Main2"), cfg.common,
     scalaJSUseMainModuleInitializer := true,
     jsEnv := new NodeJSEnv(NodeJSEnv.Config().withArgs(List("--expose-gc"))),
     scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
   )
-  .jvmSettings( mainClass in (Compile, run) := Some("main.Main") )
+  .jvmSettings( mainClass in (Compile, run) := Some("main.Main"), cfg.common )
 
 lazy val allJS = all.js
 lazy val allJVM = all.jvm
@@ -39,9 +39,9 @@ lazy val allJVM = all.jvm
 cancelable in Global := true
 
 val cfg = new {
-  val warn      = scalacOptions ++= Seq("-feature", "-deprecation")
-  val frk       = fork in run := true
-//  val reflect   = libraryDependencies += "org.scala-lang" %%% "scala-reflect" % "2.12.6"
+  val common    = Seq(scalacOptions ++= Seq("-feature", "-deprecation"),
+                      target := file("/tmp/sbt") / baseDirectory.value.getAbsolutePath.replace("/", "-"))
+//val reflect   = libraryDependencies += "org.scala-lang" %%% "scala-reflect" % "2.12.6"
   val upickle   = libraryDependencies += "com.lihaoyi" %%% "upickle" % "0.7.1"
   val scalatags = libraryDependencies += "com.lihaoyi" %%% "scalatags" % "0.6.7"
   val source    = libraryDependencies += "com.lihaoyi" %%% "sourcecode" % "0.1.4" // 0.1.5
@@ -52,4 +52,3 @@ val cfg = new {
     "com.typesafe.akka" %% "akka-actor" % "2.5.20",
   )
 }
-

@@ -4,7 +4,14 @@
 
 import java.util.concurrent.ThreadLocalRandom
 
-import Network.{ClientID, fetchBase64, fetchText}
+import org.scalajs.dom
+import org.scalajs.dom.html.{Element, UList}
+import scalatags.JsDom
+
+import scala.collection.mutable
+import scala.scalajs.js
+
+//import Network._
 import RxDom._
 import RxDomHelper._
 import drx._
@@ -17,29 +24,32 @@ import scala.language.implicitConversions
 
 object AppTodo {
 
-  val fullName: Var[String] = new Var("", "fullname")
+  val fullName: Var[String] = Var("")
 
   case class Task(id: String, title: Var[String], done: Var[Boolean])
-  object Task { implicit def rw: ReadWriter[Task] = macroRW }
+//  object Task { implicit def rw: ReadWriter[Task] = macroRW }
 
-  val model  = new IncMap[Task]("model")
-  model.aggregate
+  val model = new IncMap[Task]()
 
   //  val model2 = new Store((Task.apply _).tupled, "model")
-  val todoTextColor: Var[String] = new Var("green", "col")
+  val todoTextColor: Var[String] = Var("green")
   def makeNewTodo(value: String): Unit = model.update {
-    val rnd = ThreadLocalRandom.current().nextInt().toString
-    Seq(rnd -> Task(rnd, new Var(value), new Var(false)))
+    val rnd = ThreadLocalRandom.current().nextLong().toHexString
+    Seq(rnd -> Task(rnd, Var(value), Var(false)))
   }
   def clearDoneTodos(store: IncMap[Task]): Unit = {
-    println("clearing!")
+    store.update(store.aggregate.sample.toSeq
+      filter (_._2.done.sample)
+      map (kv => (kv._1, null)))
+  }
+  def clearEmptyTodos(store: IncMap[Task]): Unit = {
     store.update(store.aggregate.sample.toSeq
       filter (_._2.title.sample.isEmpty)
       map (kv => (kv._1, null)))
   }
 
   // snake game
-//  val clock = new Var(0)
+//  val clock = Var(0)
 //  class Cell(val x: Int, val y: Int, c: Int) extends VarOwner {
 //    val content: Var[Int] = mkVar(c, "c")
 //    override def toString: String = content.sample.toString
@@ -53,21 +63,26 @@ object AppTodo {
 //  }
 
   def main(): Unit = {
-    val ximg = new Var("")
+//    val ximg = Var("")
 
     val svg_container = dom.document.querySelector("#svg-container")
-//    debug.hook = {str =>
-//      val string = drx.debug.stringit(collectChildSinks(dom.document.body))
-////      println(string)
-//      val but = button("render").render
-//      but.onclick = { e =>
-//        but.outerHTML = dom.window.asInstanceOf[js.Dynamic]
-//          .Viz(string, Map("engine" -> "dot")).asInstanceOf[String]
-//      }
-//      svg_container.appendChild(span(str).render)
-//      svg_container.appendChild(but)
-//      svg_container.appendChild(br.render)
-//    }
+    val slider = input(tpe:="range", min:=0, max:=0).render
+    val content = div.render
+    svg_container.appendChild(slider)
+    svg_container.appendChild(content)
+    val items = mutable.Buffer[(String, String)]()
+    slider.onchange = { e =>
+      val item = items(slider.valueAsNumber)
+      content.innerHTML = item._1 + "<br>" +
+        dom.window.asInstanceOf[js.Dynamic]
+          .Viz(item._2, Map("engine" -> "dot")).asInstanceOf[String]
+    }
+    debug.hook = {str =>
+      val string = drx.debug.stringit(collectChildSinks(dom.document.body))
+      val idx = slider.max.toInt + 1
+      slider.max = items.size.toString
+      items += str -> string
+    }
 
 //    for (y <- 0 to 9; x <- 0 to 9)
 //      yield game.create((x, y, if (x==4&&y==4) 1 else if (x==4&&y==3) 2 else 0))
@@ -79,53 +94,47 @@ object AppTodo {
 //      model.create((ThreadLocalRandom.current().nextInt().toString, "honey", false))
 //    }
 
-    Network.pub(model.diffs)
-    val allOtherModels: Rx[(ClientID, Map[String, Task])] =
-      Network.sub[Map[String, Task]](Map(), model.diffs.id)
-        .scan(("", Map[String, Task]())){ (state, event) => (event._1, (state._2 ++ event._2) filter { _._2 != null }) }
+//    Network.pub(model.diffs, "todos")
+//    val allOtherModels: Rx[(ClientID, Map[String, Task])] =
+//      Network.sub[Map[String, Task]](Map(), "todos")
+//        .scan(("", Map[String, Task]())){ (state, event) => (event._1, (state._2 ++ event._2) filter { _._2 != null }) }
 
     //Network.publish(fullName)
     //Network.subscribe[String]("", "fullname") observe {
     //  case (_, valu) => fullName set valu
     //}
 
-    Network.startHeartbeat()
+//    Network.startHeartbeat()
 
-    val todotext = model.aggregate.map({ lst =>
-      val it = lst.size
-      span(if (it == 0) "are no active todos"
-           else if (it == 1) "is 1 active todo"
-           else "are " + it + " active todos") }, "string")
+    val todotext = model.aggregate
+      .map(it => it.values.count(!_.done.get))
+      .map(it => if (it == 0) "no" else "" + it)
+      .map(span(_))
+
     val textlen = model.aggregate
-      .map({ it => span(it.toList.map { case (k,task) => task.title.get.length }.sum) }, "charsum")
-//    val todolistlist = model.map { lst => ul(lst.toSeq.map(rxTask(model))) }
-    val todolistlist = ul(model.diffs.dmapmap(rxTask(() => clearDoneTodos(model))))
-    val todolist = model.aggregate map (lst =>
-      if (lst.isEmpty) div(cls:="info", "All done! :)")
-      else todolistlist, "tasklist")
-    val todolistlist2 = ul(allOtherModels.map(x => span(x._2.map(x => rxTask(() => ())(x._2)).toSeq)))
-    val todolist2 = allOtherModels map (lst =>
-      if (lst._2.isEmpty) div(cls:="info", "All done! :)")
-      else todolistlist2, "tasklist")
+      .map { it => it.toList.map { case (k,task) => task.title.get.length }.sum }
+      .map(span(_))
 
-//    val gamefield = div(style:="position:relative;height:320px", game dmapmap rxCell)
+    val todolist = div(
+      ul(model.diffs.dmapmap(rxTask(() => clearEmptyTodos(model)))),
+      div(model.aggregate.map(lst => if (lst.isEmpty) cls:="info" else cls:="hidden"), "All done! :)"))
 
-//    val log = textarea(id:="log").render
+    //    val gamefield = div(style:="position:relative;height:320px", game dmapmap rxCell)
 
     val obj = div(
 //      rxClock(), br,
 //      rxFullName(Signal("So be it!"), fullName), br,
 //      "Hello ", fullName.map(span(_)), "!", br,
 
-      h1("DO TODOS! ", Network.name.map(x => span(x))),
+      h1("DO TODOS! "/*, Network.localId*/),
       rxCommand(makeNewTodo, placeholder:="enter new todo here"),
 
 //      div(todolist),
-      div(Network.name.map(span(_)), todolist, style:="display:inline-block; width:48%"),
+      div(/*Network.localId, */todolist, style:="display:inline-block; width:48%"),
       div(style:="display:inline-block; width:4%"),
 //      div(todolist, style:="display:inline-block; width:48%"),
 //      div(style:="display:inline-block; width:2%"),
-      div(allOtherModels.map(x => span(x._1)), todolist2, style:="display:inline-block; width:48%"),
+//      div(allOtherModels.map(x => span(x._1)), todolist2, style:="display:inline-block; width:48%"),
 
       p("There ", todotext, " left, " +
         "with a total description length of ", textlen, "."),
@@ -135,7 +144,7 @@ object AppTodo {
 
       br, br, br,
 
-      ximg.map(x => img(src:=x))
+//      ximg.map(x => img(src:=x)),
 
 //      gamefield,
 
@@ -153,40 +162,39 @@ object AppTodo {
 //      button(
 //        style:="display:block", onclick:={ () =>
 //          val tmp = dom.document.querySelector("#svg-container")
-//          tmp.innerHTML += dom.window.asInstanceOf[js.Dynamic]
+//          tmp.innerHTML = tmp.innerHTML + dom.window.asInstanceOf[js.Dynamic]
 //            .Viz(drx.debug.stringit(collectChildSinks(dom.document.body)),
 //                 Map("engine" -> "dot")).asInstanceOf[String]
 //        }, "So be it!"),
 
 //      button("doit", onclick:={ () => drx.helper.printless() }),
     )
-//    transact { // TODO what for the transact?
+//    transact { // TODO why transact?
     replaceChild(dom.document.body, dom.document.body.lastElementChild, obj.render)
 //    }
 
-    import scala.concurrent.ExecutionContext.Implicits.global
-    import scala.concurrent.Future
-    val dino = "http://dinoipsum.herokuapp.com/api/?format=text&paragraphs=3"
-
-    fetchText(dino)
-    .flatMap(_ => fetchText(dino))
-    .flatMap(_ => fetchText(dino))
-    .flatMap(_ => fetchText("http://www.random.org/integers/" +
-      "?num=1&min=10&max=55&base=10&format=plain&rnd=new&col=1"))
-    .flatMap{ x =>
-      println((2, x.trim.toInt));
-      val a = fetchBase64("https://picsum.photos/"+(x.trim.toInt * 10)+"/200/")
-      val b = fetchText(dino)
-      Future.sequence(Seq(a, b)) }
-    .foreach(x => ximg set "data:image/jpeg;base64," + x(0))
+//    import scala.concurrent.ExecutionContext.Implicits.global
+//    import scala.concurrent.Future
+//    val dino = "http://dinoipsum.herokuapp.com/api/?format=text&paragraphs=3"
+//    fetchText(dino)
+//    .flatMap(_ => fetchText(dino))
+//    .flatMap(_ => fetchText(dino))
+//    .flatMap(_ => fetchText("http://www.random.org/integers/" +
+//      "?num=1&min=10&max=55&base=10&format=plain&rnd=new&col=1"))
+//    .flatMap{ x =>
+//      println((2, x.trim.toInt));
+//      val a = fetchBase64("https://picsum.photos/"+(x.trim.toInt * 10)+"/200/")
+//      val b = fetchText(dino)
+//      Future.sequence(Seq(a, b)) }
+//    .foreach(x => ximg set "data:image/jpeg;base64," + x(0))
   }
 
   val rxTask: (() => Unit) => Task => JsDom.TypedTag[dom.html.Element] =
     onclick => Extras.lazyExtAttr { that =>
       val changeCtr = Scan(0){ prev => that.title.get; that.done.get; prev + 1 }
 
-      val changed = new Var[Boolean](false)
-      changed observe (_ => onclick())
+      val changed = Var[Boolean](false)
+      changed foreach (_ => onclick())
       val lastentries = Scan(List[String]()){ prev =>
         changed.get; that.title.get :: prev.take(10) }
 

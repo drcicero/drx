@@ -4,7 +4,7 @@
 
 import java.util.concurrent.ThreadLocalRandom
 
-import Network.{ClientID, fetchBase64, fetchText}
+import Network._
 import RxDom._
 import RxDomHelper.{rxInput, _}
 import drx._
@@ -16,28 +16,27 @@ import scala.language.implicitConversions
 import scala.scalajs.js.Date
 
 object AppChat {
-
   case class LocalMsg(id: String, timestamp: Long, content: Var[String])
-  case class Msg(id: String, timestamp: Long, content: Var[String], clientId: ClientID)
+  case class Msg(id: String, timestamp: Long, content: Var[String], clientId: ClientId)
   implicit def localRW: ReadWriter[LocalMsg] = macroRW
   implicit def remoteRW: ReadWriter[Msg] = macroRW
 
-  val localnick: Var[String] = new Var("", "nick")
-  val localHistory = new IncMap[LocalMsg]("history")
+  val localnick: Var[String] = Var("")
+  val localHistory = new IncMap[LocalMsg]()
   def makeNewMessage(value: String): Unit = localHistory.update {
     val rnd = ThreadLocalRandom.current().nextInt().toString
-    Seq(rnd -> LocalMsg(rnd, new java.util.Date().getTime, new Var(value)))
+    Seq(rnd -> LocalMsg(rnd, new java.util.Date().getTime, Var(value)))
   }
 
-  def getAllOthers[X](sig: Var[X])
-                     (implicit e: ReadWriter[X]): Rx[(ClientID, X)] = {
-    Network.pub(sig)
-    Network.sub[X](sig.sample, sig.id)
+  def getAllOthers[X](sig: Rx[X], id: String, startup: () => X)
+                     (implicit e: ReadWriter[X]): Rx[(ClientId, X)] = {
+    Network.offer(sig, startup, id)
+    Network.sub[X](sig.sample, id)
   }
 
   def main(): Unit = {
 
-    val dcommonHistory: Rx[Seq[(String, Msg)]] = getAllOthers(localHistory.diffs)
+    val dcommonHistory: Rx[Seq[(String, Msg)]] = getAllOthers(localHistory.diffs, "history", ()=>localHistory.aggregate.get.toSeq)
       .map { case (clientId, lmsg) =>
         lmsg.map{ case (x,y) => x -> Msg(y.id, y.timestamp, y.content, clientId) }}
     val commonHistory: Rx[Map[String, Msg]] = dcommonHistory
@@ -45,14 +44,14 @@ object AppChat {
         (state ++ event) filter { _._2 != null }
       }
 
-    val nicks = getAllOthers(localnick).scan(Map[ClientID, String]())(
+    val nicks = getAllOthers(localnick, "nick", ()=>localnick.get).scan(Map[ClientId, String]())(
       (state, evt) => if (evt._2 != "") state + evt else state)
 
     Network.startHeartbeat()
 
     val obj = div(
       h1("CHAT"),
-      rxInput(localnick, Val(placeholder:=Network.name.get)),
+      rxInput(localnick, Val(placeholder:=Network.localId)),
       div(dcommonHistory.dmapmap{ msg =>
         if (dom.window.innerHeight + dom.window.pageYOffset + 10 > dom.document.documentElement.scrollHeight)
           scala.scalajs.js.timers.setTimeout(1) (dom.document.body.lastElementChild.lastElementChild.scrollIntoView())

@@ -1,4 +1,4 @@
-package example
+package server
 
 import java.io
 
@@ -18,13 +18,13 @@ import scala.io.StdIn
 // thanks to https://github.com/lihaoyi/workbench-example-app/tree/autowire-akka-http
 
 object Server {
-  var join = 0
-  var log = mutable.ListBuffer[String]()
-  var waiting: Seq[Promise[String]] = Seq[Promise[String]]()
+  var log = mutable.Map[String, mutable.ListBuffer[String]]()
+  var waiting = mutable.Map[String, Promise[String]]()
+  var cleanup = mutable.Map[String, Promise[String]]()
 
-  def timeout[X](x: Future[X], i: Long): Future[X] =
+  def timeoutElse[X](x: Future[X], i: Long)(alt: () => X): Future[X] =
     Future.firstCompletedOf(Seq(x,
-      Future { Thread.sleep(10000); sys.error("changes!") }))
+      Future { Thread.sleep(10000); alt() }))
 
   def main(args: Array[String]): Unit = {
     implicit val system = ActorSystem()
@@ -32,44 +32,49 @@ object Server {
 
     val route = {
       get {
-        path("quit") { system.terminate(); complete{ "goto /index.html" } } ~
-        getFromBrowseableDirectory("..")
+        path("") { getFromFile("index.html") } ~
+        path("viz.js") { getFromFile("viz.js") } ~
+        path("todojs.js") { getFromFile {
+          "/tmp/sbt/" + new java.io.File("").getAbsolutePath().replace("/", "-") + "-todojs/scala-2.12/todojs-fastopt.js"
+        } } ~
+        path("quit") { system.terminate(); complete{ "goto /index.html" } }
       } ~
       post {
-        path("join") { join.synchronized{ join+=1; complete("bot" + join) } } ~
         path("push") { entity(as[String]) { str =>
-          val newseq = read[Seq[String]](str)
-          log.synchronized(log ++= newseq)
-          waiting.synchronized {
-            waiting.foreach(x => x.failure(new RuntimeException("changes!")))
-            waiting = Seq()
+          this.synchronized {
+            read[Seq[(String, String)]](str).foreach { case (client, news) => log.getOrElseUpdate(client, mutable.ListBuffer()) += news }
+            waiting.foreach { case (name, promise) =>
+              println("} news")
+              val news = log.getOrElseUpdate(name, mutable.ListBuffer()).toSeq; log(name).clear()
+              if (news.nonEmpty) {
+                promise.success(write((log.keys.toSet, news)))
+                waiting.remove(name)
+              }
+            }
           }
           complete("")
         } } ~
-        path("pull" / Segment) { watermark =>
-          val (newWatermark, news) = log.synchronized(
-            (log.length, log.drop(watermark.toInt).toSeq))
-
-          val promise = Promise[String]()
-          val thefuture = timeout(promise.future, 1000).recover {
-            case _ =>
-              println("} timeout / new")
-              val (loglength, value) = log.synchronized(
-                (log.length, log.drop(watermark.toInt).toSeq))
-              write((loglength, value))
-          }
-
-          waiting.synchronized {
-            if (news.isEmpty) {
-              waiting ++= Seq(promise)
-              println("waiting {")
-            } else {
-              promise.success(write((newWatermark, news)))
+        path("pull" / Segment) { name =>
+          this.synchronized {
+            val newConnection = !log.contains(name)
+            val news = log.getOrElseUpdate(name, mutable.ListBuffer()).toSeq; log(name).clear()
+            if (newConnection || news.nonEmpty) {
               println("immediate {}")
+              complete(write((log.keys.toSet, news)))
+            } else {
+              println("waiting {")
+              val promise = Promise[String]()
+              val thefuture = timeoutElse(promise.future, 5000) { () => this.synchronized {
+                if (!waiting(name).isCompleted) {
+                  println("} timeout")
+                  val news = log.getOrElseUpdate(name, mutable.ListBuffer()).toSeq; log(name).clear()
+                  write((log.keys.toSet, news))
+                } else ""
+              } }
+              waiting += name -> promise
+              complete(thefuture)
             }
           }
-
-          complete(thefuture)
         }
       }
     }

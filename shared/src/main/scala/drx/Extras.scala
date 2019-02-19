@@ -4,6 +4,7 @@ object Extras {
   /* allow folds */
   def lazyExtAttr[X,Y](func: X => Y, name: String=""): X => Y = {
     val cache = new platform.platform.WeakMap[X, Y]()
+
     x: X => {
 //      var neednew = ""
       val tmp = cache.get(x).getOrElse(internals.activeRx.withValue(None) {
@@ -16,8 +17,6 @@ object Extras {
       tmp
     }
   }
-
-  def zip[X,Y](rx1: Rx[X], rx2: Rx[Y]): Rx[(X,Y)] = Val((rx1.get, rx2.get))
 
 //  implicit class RxRx[X](rxrx: Rx[Rx[X]]) {
 //    def flattenChanges(name: String = ""): Rx[X] =

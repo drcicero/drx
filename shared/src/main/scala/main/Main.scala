@@ -24,12 +24,12 @@ object Main {
       }
     }
     val medium = div(span("{{init}}"))
-    medium.obsid = sig.mkObs({ newelem: Tree =>
+    medium.obsid = sig.mkForeach { newelem: Tree =>
       val fc = medium.children.head
       forallObs(fc, _.stop())
       forallObs(newelem, _.start())
       medium.children(0) = newelem
-    })
+    }
     medium
   }
 
@@ -46,14 +46,14 @@ object Main {
 
   def partOfMain(): Unit = {
     object state {
-      val thingy: Var[Task] = new Var(Task.mk("hey"))
-      val model: Var[Seq[Task]] = new Var(Seq[Task](), "model")
+      val thingy: Var[Task] = Var(Task.mk("hey"))
+      val model: Var[Seq[Task]] = Var(Seq[Task]())
     }
 
     val mapped = state.model
-      .map({ it => it.length }, "length")
-      .map({ it => if (it == 0) "No" else ""+it }, "string")
-      .map({ it => span(it) }, "span")
+      .map(it => it.length)
+      .map(it => if (it == 0) "No" else "" + it)
+      .map(it => span(it))
 
     val screen = div(
       span("DO TODOs!"),
@@ -81,19 +81,19 @@ object Main {
   }
 
   def main(args: Array[String]): Unit = {
-    val daa = new Var(false)
+    val daa = Var(false)
     val a = daa.map(!_).map(!_).map(!_).map(!_)
     val b = a.map(!_)
     val c = a.map(!_)
-    val d = Extras.zip(c,b).map(_._1)
+    val d = c.zip(b).map(_._1)
     val e = d.map(!_)
     val f = e.map(!_)
-    instantly {
+    atomic {
       daa set true
-      println("interest: " + f.sample + " == true")
+      println("interest: " + f.get + " == true")
     }
 
-    val t1 = new Var(false)
+    val t1 = Var(false)
     val t2 = t1 // .fold(false)((state,ev)=>ev)
 
     val a1 = t2
@@ -104,11 +104,11 @@ object Main {
       .map(it=>it)
       .map(it=>it)
 
-    println("interest: " + a1.sample + " == false")
+    println("interest: " + a1.get + " == false")
     t1 set true
-    println("interest: " + a1.sample + " == true")
+    println("interest: " + a1.get + " == true")
     t1 set false
-    println("interest: " + a1.sample + " == false")
+    println("interest: " + a1.get + " == false")
 
 //    val t3 = new Source[Int]()
 //    val t4 = t3.map(it=>it)

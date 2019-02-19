@@ -1,4 +1,4 @@
-import drx.{Rx, Obs}
+import drx.{Obs, Rx, internals}
 import org.scalajs.dom
 import org.scalajs.dom.Element
 import platform.platform.WeakMap
@@ -15,20 +15,62 @@ import scala.scalajs.js
 
 /** Created by david on 15.09.17. */
 object RxDom {
+
   // for some subtypes of Modifier, implicit conversions aproximating
   //   Rx[Modifier] ==> Modifier
-  implicit def tagToMod(sig: Rx[_ <: TypedTag[dom.Element]]): Modifier
-    = RxElemModifier(sig).toMod
-  implicit def styleToMod(sig: Rx[_ <: StylePair[dom.Element, _]]): Modifier
-    = RxStyleModifier(sig).toMod
-  implicit def attrToMod(sig: Rx[_ <: AttrPair[dom.Element, _]]): Modifier
-    = RxAttrModifier(sig).toMod
+  implicit def tagToMod(sig: Rx[TypedTag[_ <: Element]]): Modifier = (parent: Element) => {
+    var oldelem: Element = span("{{init}}").render
+    val sinkTag = sig.mkForeach { newmk =>
+      val newelem = newmk.render
+      replaceChild(parent, oldelem, newelem)
+      oldelem = newelem
+    }
+    addSink(oldelem, sinkTag)
+    parent.appendChild(oldelem)
+  }
+
+  implicit def styleToMod(sig: Rx[StylePair[Element, _]]): Modifier = (parent: Element) => {
+    val sinkStyle = sig.mkForeach { mod => mod.applyTo(parent) }
+    addSink(parent, sinkStyle)
+  }
+
+  implicit def attrToMod(sig: Rx[AttrPair[Element, _]]): Modifier = (parent: dom.Element) => {
+    val sinkAttr = sig.mkForeach { mod =>
+      // TODO? replace hacky code with unmodifiers (unnapplyto) in scalatags? alt: use scala-dom-types?
+      if (mod.a.name == "value") {
+        parent.asInstanceOf[js.Dynamic].value = mod.v.asInstanceOf[String]
+      } else if (mod.a.name == "checked")
+        parent.asInstanceOf[js.Dynamic].checked = mod.v.asInstanceOf[Boolean]
+      else if (mod.a.name == "disabled")
+        parent.asInstanceOf[js.Dynamic].disabled = mod.v.asInstanceOf[Boolean]
+      else mod.applyTo(parent)
+    }
+    addSink(parent, sinkAttr)
+  }
+
+  implicit class RxDMapMap[X](val diffs: Rx[TraversableOnce[(String, X)]]) extends AnyVal {
+    def dmapmap(fun: X => TypedTag[Element]): Modifier = (parent: Element) => {
+      val map = mutable.Map[String, Element]()
+      val sinkDiff = diffs.mkForeach { diffmap =>
+        diffmap foreach { case (k, mk) =>
+          (map remove k).foreach(oldelem =>
+            removeChild(parent, oldelem))
+          if (mk != null) {
+            val newelem = fun(mk).render
+            map += (k -> newelem)
+            insertChild(parent, newelem)
+          }
+        }
+      }
+      addSink(parent, sinkDiff)
+
+    }
+  }
 
   def insertChild(parent: dom.Element, elem: dom.Element): Unit = {
     parent.appendChild(elem)
     if (isRooted(parent)) foreachSink(elem)(_.start())
   }
-
   def replaceChild(parent: dom.Element, oldelem: dom.Element, newelem: dom.Element): Unit = {
     sinkMap.get(oldelem).getOrElse(Seq()).foreach { sink => // transfer sinks from old to new elem
       remSink(oldelem, sink)
@@ -40,72 +82,9 @@ object RxDom {
       foreachSink(newelem)(_.start())     // start rooted sinks
     }
   }
-
   def removeChild(parent: dom.Element, elem: dom.Element): Unit = {
     parent.removeChild(elem)
     if (isRooted(parent)) foreachSink(elem)(_.stop())
-  }
-
-
-  implicit class RxElemModifier(val sig: Rx[_ <: TypedTag[dom.Element]]) extends AnyVal {
-    def toMod: Modifier = (parent: Element) => {
-      var oldelem: dom.Element = span("{{init}}").render
-      val sink = sig.mkObs { newmk =>
-        val newelem = newmk.render
-        replaceChild(parent, oldelem, newelem)
-        oldelem = newelem
-      }
-      addSink(oldelem, sink)
-      parent.appendChild(oldelem)
-    }
-  }
-
-  // TODO? implement unmodifiers (unnapplyto) in scalatags?
-  implicit class RxAttrModifier(val sig: Rx[_ <: AttrPair[dom.Element, _]]) extends AnyVal {
-    def toMod: Modifier = (parent: dom.Element) => {
-      val sink = sig.mkObs { mod =>
-        if (mod.a.name == "value") {
-          parent.asInstanceOf[js.Dynamic].value = mod.v.asInstanceOf[String]
-        } else if (mod.a.name == "checked")
-          parent.asInstanceOf[js.Dynamic].checked = mod.v.asInstanceOf[Boolean]
-        else if (mod.a.name == "disabled")
-          parent.asInstanceOf[js.Dynamic].disabled = mod.v.asInstanceOf[Boolean]
-        else mod.applyTo(parent)
-      }
-      addSink(parent, sink)
-    }
-  }
-
-  implicit class RxStyleModifier(val sig: Rx[_ <: StylePair[dom.Element, _]]) extends AnyVal {
-    def toMod: Modifier = (parent: Element) => {
-//      dom.console.log("hoho", parent)
-      val sink = sig.mkObs { mod => mod.applyTo(parent) }
-      addSink(parent, sink)
-    }
-  }
-
-  implicit class RxDMapMap[X <: Product](val diffs: Rx[_ <: GenTraversableOnce[(String, X)]]) extends AnyVal {
-    def dmapmap(fun: X => TypedTag[_ <: dom.Element]): Modifier = (parent: Element) => {
-      val map = mutable.Map[String, dom.Element]()
-      val sink = diffs.mkObs({ diffmap =>
-        diffmap foreach { case (k,mk) =>
-          (map remove k).foreach(oldelem =>
-            removeChild(parent, oldelem))
-          if (mk != null) {
-            val newelem = fun(mk).render
-            map += (k -> newelem)
-            insertChild(parent, newelem)
-          }
-        }
-      }, () => {
-//        store.sample foreach { mk =>
-//          val newelem = fun(mk).render
-//          map += (mk.hashCode -> newelem)
-//          insertChild(parent, newelem)
-//        }
-      })
-      addSink(parent, sink)
-    }
   }
 
 //  def attrValue(sig: Rx[Modifier]): Modifier =
@@ -157,6 +136,7 @@ object RxDom {
           y <- sinkMap.get(list(i)).getOrElse(mutable.Set()))
       yield y).toSet[Obs[_]]
   }
+//  platform.platform.collector = () => collectChildSinks(dom.document.body)
  
   private def foreachChildSink(fc: dom.Element)(f: Obs[_] => Unit): Unit =
     collectChildSinks(fc).foreach(f)
@@ -165,4 +145,5 @@ object RxDom {
 
   private def isRooted(node: dom.Node): Boolean =
     dom.document.body.asInstanceOf[js.Dynamic].contains(node).asInstanceOf[Boolean]
+
 }

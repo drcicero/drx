@@ -1,93 +1,74 @@
 package drx
 
+//import java.lang.ref.Cleaner
+
 import upickle.default._
 
-import scala.collection.{GenTraversableOnce, mutable}
-import scala.util.{Failure, Success, Try}
+import scala.collection.mutable
+import scala.util.{Success, Try}
 
 object Var {
-  val incoming: mutable.Map[String, Var[_]] = mutable.Map()
+//  private val cleaner = Cleaner.create()
 
-  implicit def varRW[X](implicit e: ReadWriter[X]): ReadWriter[Var[X]] =
-    readwriter[String].bimap[Var[X]](
-      y => write((y.id, y.unparse())),
-      y => { val (id, valu) = read[(String, String)](y)
-             incoming.getOrElseUpdate(id, new Var[X](read[X](valu), id))
-               .asInstanceOf[Var[X]] }
-    )
+  def apply[X](buffer: X)(implicit n: Name): Var[X] =
+    new Var(Success(buffer))(n)
 
-  implicit def tryRW[X](implicit rw: ReadWriter[X]): ReadWriter[Try[X]] =
-    readwriter[Either[String, X]].bimap[Try[X]](
-      y => y.fold(x => Left(x.toString), Right(_)),
-      y => y.fold(x => Try(sys.error(x)), Success(_))
-    )
-
-  def mkEmptyVar[X](name: String = "")
-                   (implicit readwriter: ReadWriter[X]): Var[X] = {
-    val vari = new Var[X](null.asInstanceOf[X], name)
-    vari.underlying.value = internals.emptyValExc()
-    vari
-  }
+  def mkEmptyVar[X](implicit n: Name): Var[X] =
+    new Var[X](internals.emptyValExc())(n)
 }
 
-class Var[X](protected var buffer: X, name: String = "")
-            (implicit val rw: ReadWriter[X])
-            extends ProxyRx[X](name) {
+object SeqVar {
+  def apply[X]()(implicit n: Name): SeqVar[X] =
+    new SeqVar()(n)
+}
 
-  underlying.remember = true
-  underlying.value = Success(buffer)
-  underlying.formula = () => buffer
-  underlying.forceActive = true
+// Distributed Programming: Building Functional Refuges inside Imperative Chaos
 
-  val diffs: Var[X] = this
+sealed class Var[X] private[drx](protected var buffer: Try[X])(implicit n: Name)
+  extends DynamicRx[X](true, n.toString, buffer) with Rx[X] {
+  // TODO watch that ad-hoc classes do not capture this of outer,
+  //      bc Proxys finalize would no longer work
+
+  override protected[this] val formula: Try[X] => X = _ => buffer.get
+
+  forceObserved = true
+
+  def set(newValue: X): Unit = if (newValue != buffer) {
+    buffer = Success(newValue)
+    withInstant(_.markSource(this))
+  }
+
+  // using the above definitions
+
+  def transform(transformer: X => X): Unit = set(transformer(getIt.get))
+
+//  // make observers and sources declarative by collecting them if unreachable
+//  // turn all Sources & Sinks (Folds+Observers)
+//  // into proxies/wrappers that only weakref the real Rx.
+//  // Then we can kill/stop them in the finalizer.
+//  override def finalize(): Unit = { rxit.freeze() }
+}
+
+sealed class SeqVar[X] private[drx](protected val buffer: mutable.Buffer[X] = mutable.Buffer[X]())(implicit n: Name)
+  extends DynamicRx[Seq[X]](
+    true, // actually false?
+    n.toString,
+    Success(Seq() ++ buffer)) with Rx[Seq[X]] {
+
+  forceObserved = true
 
   def set(newValue: X): Unit = {
-    if (newValue != buffer) {
-      buffer = newValue
-      withInstant(_.markSource(underlying))
-    }
+    buffer ++= Seq(newValue)
+    withInstant(_.ensureSource(this))
   }
 
-  def transform(transformer: X => X): Unit = set(transformer(underlying.value.get))
-
-  def parse(str: String): Unit = set(read[X](str))
-  def unparse(): String = write(buffer)
-//  override /*private[drx]*/ def getVars: Signal[Seq[Var[_]]] = new Var(Seq(this))
-
-  protected def getEmbeddedVaris(valu: X): GenTraversableOnce[Var[_]] = valu match {
-    case x: Var[_] => Option(x)
-    case _ => None
+  def set(newValue: Seq[X]): Unit = if (newValue.nonEmpty) {
+    buffer ++= newValue
+    withInstant(_.ensureSource(this))
   }
 
-  def mkStrObs(callback: (Seq[Var[_]],String) => Unit)
-              (implicit f: sourcecode.File, l: sourcecode.Line): Obs[Unit] = {
-    val result = new InternalRx[Unit](Val.nameit("o",f,l)) with Obs[Unit]
-    result.formula = () => {
-      val valu = Try(this.underlying.getValue)
-      val tmp = Seq(this) ++ valu.toOption.toSeq.flatMap(it => getEmbeddedVaris(it))
-      val tmp2 = internals.activeRx.withValue(None)( write(valu)(Var.tryRW) )
-      withInstant(_.runLater{ () => callback(tmp, tmp2) })
-      Try(())
-    }
-    result
-  }
-
-  def strobserve(callback: (Seq[Var[_]],String) => Unit)
-                (implicit f: sourcecode.File, l: sourcecode.Line): Obs[Unit] = {
-    val result = mkStrObs(callback)(f, l)
-    result.start()
-    result
-  }
-}
-
-// TODO make observers and sources declarative by collecting them if unreachable
-// turn all Sources & Sinks (Folds+Observers)
-// into proxies/wrappers that only weakref the real Rx.
-// Then we can kill/stop them in the finalizer.
-class ProxyRx[X](name: String) extends Rx[X] {
-  /*private[drx]*/ var underlying: InternalRx[X] = new InternalRx[X](name)
-  override def id: String = underlying.id
-  override def finalize(): Unit = { underlying.freeze(); underlying = null }
+  override protected[this] val formula: Try[Seq[X]] => Seq[X] =
+    _ => { val tmp = Seq() ++ buffer; buffer.clear(); tmp }
 }
 
 // TODO parallel

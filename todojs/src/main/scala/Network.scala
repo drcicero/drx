@@ -1,40 +1,125 @@
-import drx._
-import upickle.default.{read, write, ReadWriter}
+import java.util.concurrent.ThreadLocalRandom
+
+import drx.{Rx, SeqVar, Var}
+import upickle.default.{ReadWriter, Reader, Writer, macroRW, read, readwriter, write}
 
 import scala.collection.mutable
 import org.scalajs.dom.experimental.{Fetch, HttpMethod, RequestInit, Response}
+import upickle.default
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.scalajs.js.typedarray.Uint8Array
-import upickle.default.macroRW
+import scala.util.{DynamicVariable, Failure, Success, Try}
 
+private sealed trait Msgi
+private case class NoMsg() extends Msgi
+private case class Listen(source: Network.ClientId, id: String) extends Msgi
+private case class Change(source: Network.ClientId, id: String, payload: String) extends Msgi
+private object Msgi   { implicit val rw: ReadWriter[Msgi] = ReadWriter.merge(NoMsg.rw, Listen.rw, Change.rw) }
+private object NoMsg  { implicit val rw: ReadWriter[NoMsg] = macroRW }
+private object Listen { implicit val rw: ReadWriter[Listen] = macroRW }
+private object Change { implicit val rw: ReadWriter[Change] = macroRW }
+
+private case class Offer[X](rx: Rx[X], id: String, e: ReadWriter[X], startup: () => X)
 
 object Network {
-  type ClientID = String
+  type ClientId = String
 
-  var name: Var[ClientID] = new Var("")
-  fpost("./join", "abc").foreach(name set _)
+  import Msgi.rw
+
+  var localId: ClientId = "bot-" + ThreadLocalRandom.current().nextLong().toHexString
+//  fpost("./join", "abc").foreach(localId = _)
+
+  // map remote to local var id, and otherwise
+  private val offeredRx: mutable.Map[String, Offer[_]] = mutable.Map()
+  private val publishedRx: mutable.Set[(Rx[_], ClientId)] = mutable.Set()
+  private val outbox = SeqVar[(String, String)]()
+
+  private val subscribedRx: mutable.Map[(ClientId, String), (Var[_], ReadWriter[_])] = mutable.Map()
+  private val subscribedRxFromAll: mutable.Map[String, (Var[(ClientId, _)], ReadWriter[_])] = mutable.Map()
+  private val notYetRx: mutable.Map[(ClientId, String), String] = mutable.Map()
+
+  implicit def tryRW[X](implicit rw: ReadWriter[X]): ReadWriter[Try[X]] =
+    readwriter[Either[String, X]].bimap[Try[X]](
+      y => y.fold(x => Left(x.toString), Right(_)),
+      y => y.fold(x => Try(sys.error(x)), Success(_))
+    )
+
+  implicit def varRW[X](implicit xRW: ReadWriter[X]): ReadWriter[Var[X]] =
+    readwriter[(ClientId, String)].bimap[Var[X]](
+      { y =>
+        pub(Offer(y, y.hashCode().toString, xRW, ()=>y.get))
+        (localId, y.hashCode().toString)
+      },
+      { case (remoteId, hashCode) =>
+        subscribedRx.getOrElseUpdate(
+          (remoteId, hashCode),
+          { val remoteVar = if (notYetRx.contains((remoteId, hashCode))) {
+            Var[X](read(notYetRx.remove((remoteId, hashCode)).get)(xRW))
+          } else Var.mkEmptyVar[X]
+            (remoteVar, xRW) }
+        )._1.asInstanceOf[Var[X]]
+      }
+    )
+
+  implicit def rxRW[X](implicit xRW: ReadWriter[X]): ReadWriter[Rx[X]] =
+    readwriter[(ClientId, String)].bimap[Rx[X]](
+      { y =>
+        pub(Offer(y, y.hashCode().toString, xRW, ()=>y.get))
+        (localId, y.hashCode().toString)
+      },
+      { case (remoteId, hashCode) =>
+        subscribedRx.getOrElseUpdate(
+          (remoteId, hashCode),
+          { val remoteVar = if (notYetRx.contains((remoteId, hashCode))) {
+            Var[X](read(notYetRx.remove((remoteId, hashCode)).get)(xRW))
+          } else Var.mkEmptyVar[X]
+            (remoteVar, xRW) }
+        )._1.asInstanceOf[Rx[X]]
+      }
+    )
 
   /* publish a variable */
-  def pub(vari: Var[_]): Unit = {
-    if (!published.add(vari)) return;
-    //Var.incoming(vari.id) = vari
-    println("publish "+vari.id)
-    val obs = vari.strobserve(enqueueMsg(vari.id, _, _))
-    // TODO timeout delete obs
+  var tos = new DynamicVariable[Set[ClientId]](Set())
+  private def pub[X](offer: Offer[X]): Unit = {
+    //if (ignore) return
+    println(s"new pub ${offer.id} ${offer.rx}")
+    tos.value.foreach { to =>
+      if (publishedRx.add((offer.rx, to))) {
+        tos.withValue(Set(to)) {
+          outbox set (to, write(Change(localId, offer.id, write(offer.startup())(offer.e))))
+        }
+        val obs = offer.rx.foreach { y =>
+          tos.withValue(Set(to)){
+            println(s"send -> $to ${offer.id} $y")
+            outbox set (to, write(Change(localId, offer.id, write(y)(offer.e))))
+          }
+        }
+      }
+    }
+    // TODO connectionloss/timeout, delete obs
   }
 
   /* subscribe to a variable name & type */
   def sub[X](init: X, variname: String)
-            (implicit readwriter: ReadWriter[X]): Rx[(ClientID, X)] = {
-    val vari = new Var[(String, X)](("", init))
-    subscriptions += variname -> vari.asInstanceOf[Var[(ClientID, _)]]
-    vari
+            (implicit readwriter: ReadWriter[X]): Rx[(ClientId, X)] = {
+    val remoteVar = Var[(ClientId, X)](("", init))
+    subscribedRxFromAll += variname -> (remoteVar.asInstanceOf[Var[(ClientId, _)]], readwriter)
+    remoteVar
   }
 
-  def startHeartbeat(): Unit = heartbeat().foreach(_ =>
-      scala.scalajs.js.timers.setTimeout(500)(startHeartbeat()))
+  /* publish a variable */
+  def offer[X](rx: Rx[X], startup: () => X, id: String)
+              (implicit e: ReadWriter[X]): Unit = {
+    if (offeredRx.contains(id)) return
+    offeredRx(id) = Offer(rx, id, e, startup)
+  }
+
+  def startHeartbeat(): Unit = heartbeat().onComplete {
+    case Success(s) => scala.scalajs.js.timers.setTimeout(500)(startHeartbeat())
+    case Failure(e) => throw e
+  }
 
   def fetchText(url: String): Future[String] =
     Fetch.fetch(url, RequestInit(HttpMethod.GET))
@@ -43,72 +128,95 @@ object Network {
   // https://stackoverflow.com/questions/9267899/arraybuffer-to-base64-encoded-string/11562550#11562550
   def fetchBase64(url: String): Future[String] =
     Fetch.fetch(url, RequestInit(HttpMethod.GET))
-      .toFuture.flatMap(x => x.arrayBuffer.toFuture).map{ x =>
+      .toFuture.flatMap(x => x.arrayBuffer.toFuture).map { x =>
       val btoa = org.scalajs.dom.window.btoa _
       val fromCharCode = scalajs.js.Dynamic.global.String.fromCharCode
       btoa(fromCharCode.applyDynamic("apply")(
-        (), new Uint8Array(x)).asInstanceOf[String]) }
+        (), new Uint8Array(x)).asInstanceOf[String])
+    }
 
   def fpost(url: String, body: String): Future[String] =
-    Fetch.fetch(url, RequestInit(HttpMethod.POST, body=body))
+    Fetch.fetch(url, RequestInit(HttpMethod.POST, body = body))
       .toFuture.flatMap(x => x.text.toFuture)
 
   /* --- private --- */
 
-  private def sendOut(messagebuffer: Seq[(String, String)]): Unit = {
-    if (messagebuffer.isEmpty) return
-    val myname = name.sample
-    val payload = write(messagebuffer map (msg => write((myname, msg))))
-    fpost("./push", payload)
+  private def sendOut(messagebuffer: Seq[Seq[(String, String)]]): Unit = {
+    val tmp = messagebuffer.flatten
+    if (tmp.isEmpty) return
+    fpost("./push", write(tmp))
   }
 
+  var known: Set[ClientId] = Set()
   private def heartbeat(): Future[Unit] = {
-    val myname = name.sample
-    fpost("./pull/"+ watermark, "").map { blob =>
-      val (newWatermark, news) = read[(Int, Seq[String])](blob)
-      watermark = newWatermark
-      news foreach { item =>
-        val (source, (variId, message)) = read[(String, (String, String))](item)
+    fpost("./pull/" + localId, "").map { blob =>
+      val (alive, news) = read[(Set[ClientId], Seq[String])](blob)
 
-        println(s"  recv $message -> $variId")
-        if (source != myname) Var.incoming.get(variId).foreach(s => s set read(message)(s.rw).asInstanceOf) // update remote vars
-        subscriptions.get(variId).foreach(_ parse "["+write(source)+", "+message+"]") // fullfil subscriptions
+      val killed = known -- alive
+      val added = alive -- known
+      known = alive
+      added.foreach ( newremote =>
+        subscribedRxFromAll.foreach { case (variId, (vari, _)) =>
+          outbox set (newremote, write(Listen(localId, variId)))
+        }
+      )
+
+      news foreach { item => read[Msgi](item) match {
+        case NoMsg() =>
+          // nothing
+
+        case Listen(remoteId, id) =>
+          tos.withValue(Set(remoteId)) {
+            offeredRx.get(id).foreach(pub(_))
+          }
+
+        case Change(remoteId, variId, message) =>
+          println(s"  recv $remoteId $message -> $variId")
+          if (subscribedRxFromAll.contains(variId))
+            subscribedRxFromAll.get(variId).foreach(s =>
+              s._1.asInstanceOf[Var[(ClientId, Any)]] set (remoteId, read(message)(s._2))) // update remote vars
+          else if (subscribedRx.contains((remoteId, variId)))
+            subscribedRx.get((remoteId, variId)).foreach(s =>
+              s._1.asInstanceOf[Var[Any]] set read(message)(s._2)) // update remote vars
+          else notYetRx((remoteId, variId)) = message
+      }
+    } }
+  }
+
+  def bufferTime[X](incoming: Rx[X], before: Int, between: Int)
+                   (implicit readWriter: ReadWriter[X]): Var[Seq[X]] = {
+    val buffer = mutable.ListBuffer[X]()
+    var running = false
+    val outgoing = Var[Seq[X]](Seq[X]())
+
+    def f(): Unit = {
+      if (buffer.nonEmpty) {
+        val tmp = Seq() ++ buffer
+        buffer.clear()
+        outgoing set tmp
+        scala.scalajs.js.timers.setTimeout(between){ f() }
+      } else {
+        running = false
+      }
+//      println(s"buffer $running $buffer")
+    }
+
+    incoming foreach { x =>
+      buffer ++= Seq(x)
+      if (!running) {
+        running = true
+        scala.scalajs.js.timers.setTimeout(before){ f() }
       }
     }
-  }
 
-  def bufferTime[X](incoming: Rx[X], i: Int)
-                   (implicit readWriter: ReadWriter[X]) = {
-    val buffer = mutable.ListBuffer[X]()
-    incoming observe (x => buffer ++= Seq(x))
-
-    val outgoing = new Var[Seq[X]](Seq[X]())
-    def f(): Unit = scala.scalajs.js.timers.setTimeout(i) {
-      val tmp = Seq() ++ buffer
-      buffer.clear()
-      outgoing set tmp
-      f()
-    }
-    f()
     outgoing
   }
 
   //private var ignore = false
-  private val outbox = new Var[(String, String)](("", ""))
   private var watermark = 0
-  private val published = mutable.Set[Var[_]]()
-  private val subscriptions = mutable.Map[String, Var[(ClientID, _)]]()
 
-  bufferTime(outbox, 1000) observe sendOut
-
-  private def enqueueMsg(id: String, embeddedVaris: Seq[Var[_]], msg: String): Unit = {
-    embeddedVaris foreach pub // publish all embedded varis
-    //if (ignore) return
-    outbox set (id, msg)
-    println(s"send ${id -> msg}")
-  }
+  bufferTime(outbox, 100, 500) foreach sendOut
 }
-
 
 //    type PreDelta = (Set[Task], Set[Task])
 //    type Delta = (Iterable[Task.DeserT], Seq[String])

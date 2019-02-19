@@ -1,5 +1,8 @@
 package platform
 
+import drx.{Obs, Rx}
+import org.scalajs.dom
+
 import scala.scalajs.js
 
 /** Created by david on 17.09.17. */

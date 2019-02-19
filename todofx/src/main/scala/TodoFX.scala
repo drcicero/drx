@@ -1,9 +1,9 @@
-//import javafx.collections.ObservableList
 import java.util.concurrent.ThreadLocalRandom
 
+import Rendering.MutatingValue
 import javafx.application.Application
 import javafx.geometry.Insets
-import javafx.scene.control.{Button, CheckBox, Label, TextField}
+import javafx.scene.control._
 import javafx.scene.layout.{HBox, Pane, StackPane, VBox}
 import javafx.scene.{Node, Parent, Scene}
 import javafx.stage.Stage
@@ -36,7 +36,7 @@ object Rendering {
   implicit class SignalToNode(val sig: Rx[_ <: Node]) extends AnyVal {
     def drender: Node = {
       val medium = new Pane(new Label("{{init}}")) with MutatingValue
-      medium.observer = sig.mkObs(replaceLastChild(medium, _))
+      medium.observer = sig.mkForeach(replaceLastChild(medium, _))
       medium
     }
   }
@@ -57,97 +57,98 @@ class TodoFX extends Application {
   override def start(primaryStage: Stage): Unit = {
     import Rendering.SignalToNode
 
-    val todoTextColor = new Var("green", "col")
-    todoTextColor.map(_+1).map(_+1).scan("") {(acc, x) => println("todoTextColor " + x); acc +","+ x}
-    todoTextColor set "blue"
-    todoTextColor set "red"
+    val todoTextColor = Var("g")
+    val z = todoTextColor.map(x => x+1).map {x => println(s"dok $x"); x+1} .scan("") {(acc, x) => println("todoTextColor " + x); acc +","+ x}
+    todoTextColor set "b"
+    todoTextColor set "r"
 
-    val model = new IncMap[Task]("model")
-    model.aggregate
+    val model = new IncMap[Task]()
 
-    model.diffs observe (x => println("hello " + x))
-    model.aggregate observe (x => println("holla " + x))
+//    model.diffs foreach (x => println("hello " + x))
+//    model.aggregate foreach (x => println("holla " + x))
 
     def dview(task: Task): javafx.scene.Node = new HBox(10,
-      Val {
-        val checkbox = new CheckBox()
-        checkbox.setSelected(task.done.get)
-        checkbox.setOnAction {_ =>
-          println("hello")
-          task.done.transform(!_)
-          println("cello")
-        }
-        checkbox
-      }.drender,
-      Val {
-        val field = new TextField(task.title.get)
-        field.setOnAction(_ => task.title.set(field.getText()))
-        field
-      }.drender
+      rxCheckBox(task.done), rxTextField(task.title),
       //, task.folded.map(x => new Label(x.toString)).drender
     )
 
     val mapped2 = model.aggregate
-      .map({ it => it.values.count(!_.done.get) }, "notdone")
-      .map({ it => if (it == 0) "no" else ""+it }, "string")
+      .map(it => it.values.count(!_.done.get))
+      .map(it => if (it == 0) "no" else "" + it)
 
     val mapped3 = model.aggregate
-      .map(_.values.map { task => task.title.get.length }.sum.toString, "charsum")
+      .map(_.values.map { task => task.title.get.length }.sum.toString)
 
-    val textfield = new TextField("enter new task here")
-    textfield.setOnAction { _ =>
-      val x = Task.mk(textfield.getText)
-      model.update(Seq(ThreadLocalRandom.current().nextInt().toString -> x))
-      textfield.setText("")
-    }
+    val textfieldstring = Var("")
+    val textfield = rxTextField(textfieldstring, "enter new todos here!")
+    textfieldstring filter (x => x!="") foreach (x => atomic {
+        val y = Task.mk(x)
+        model.update(Seq(ThreadLocalRandom.current().nextInt().toString -> y))
+        textfieldstring set ""
+    })
 
     val box = new VBox(10)
 
-    val logbut = new Button("log it")
-//    logbut.setOnAction(_ => compat2.compat2.writeToDisk())
-
     val gcbut = new Button("collect")
-    gcbut.setOnAction { _ => platform.platform.gc(); gcbut.setText(platform.platform.heapSize().toString) }
+    gcbut.setOnAction { _ =>
+      platform.platform.gc()
+      gcbut.setText(platform.platform.heapSize().toString)
+    }
 
     box.getChildren.addAll(Seq[javafx.scene.Node](
-      new HBox(10, gcbut, logbut),
-
+      gcbut,
       new Label("DO TODOS!"),
-
-      Val({
-        val label = new Label("There are " + mapped2.get + " todos left, " +
-          "with a total description length of " + mapped3.get + ".")
-        label.setWrapText(true)
-        label
-      }, "desc").drender,
-
+      rxLabel(Val("There are " + mapped2.get + " todos left, " +
+        "with a total description length of " + mapped3.get + ".")),
       textfield,
-
       Val(
         if (model.aggregate.get.isEmpty)
           new Label("All done! :)")
         else
           new VBox(10, model.aggregate.get.values.map(dview).toList:_*)
-        , "tasklist").drender,
+      ).drender,
 
       Val(
-        if (model.aggregate.get.isEmpty)
-          new Label("")
-        else {
-          val but = new Button("remove all done todos")
-          but.setOnAction(_ =>
-            model.update(model.aggregate.sample.filter(_._2.done.sample).map(x => (x._1, null)).toSeq))
-          but
-        }, "button").drender
+        if (model.aggregate.get.isEmpty) new Label("")
+        else rxButton(() =>
+          model.update(model.aggregate.get.filter(_._2.done.get).map(x => (x._1, null)).toSeq))
+      ).drender
     ):_*)
-
 
     val root = new StackPane()
     root.setPadding(new Insets(10))
-    root.getChildren.add(new Pane())
+    root.getChildren.add(new ScrollPane())
     Rendering.replaceLastChild(root, box)
     primaryStage.setTitle("AppTodo")
     primaryStage.setScene(new Scene(root, 640, 480))
     primaryStage.show()
+  }
+
+  private def rxButton(func: () => Unit): Button = {
+    val but = new Button("remove all done todos")
+    but.setOnAction(_ => func())
+    but
+  }
+
+  private def rxLabel(s: Rx[String]): Label = {
+    val label = new Label() with MutatingValue
+    label.observer = s mkForeach label.setText //  filter(_ => false)
+    label.setWrapText(true)
+    label
+  }
+
+  private def rxTextField(title: Var[String], placeholder: String = ""): TextField = {
+    val field = new TextField() with MutatingValue
+    field.observer = title mkForeach field.setText
+    field.setPromptText(placeholder)
+    field.setOnAction(_ => title.set(field.getText()))
+    field
+  }
+
+  private def rxCheckBox(done: Var[Boolean]): CheckBox = {
+    val checkbox = new CheckBox() with MutatingValue
+    checkbox.observer = done mkForeach checkbox.setSelected
+    checkbox.setOnAction { _ => done.transform(!_) }
+    checkbox
   }
 }

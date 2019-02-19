@@ -1,113 +1,142 @@
 package drx
 
-import scala.util.{Failure, Success, Try}
+import scala.util.{Success, Try}
 
-private[drx] trait Observable[T] {
+//object TypeMath {
+//  type Fn[X,Y] = X => Y             // Proc // Can Return Different Values! Can Fail! Can Block/Take Long Time!
+//  def apply[X,Y](c: Fn[X,Y]): Y = c()
+//
+//  type Recv[T]   = Fn[Unit,T]       // Get  // Stdin.readln; Point.getX; Channel.recv; Future.await, Iterable.next()
+//  type Send[T]   = Fn[T,Unit]       // Set  // Stdout.println; Point.setX; Channel.send; Future.new
+//
+//  def foreach[T](g: Recv[T], s: Send[T]): Unit = fork {try{ while (true) s(g()) } catch { case NoSuchElementException => }}
+//  def mkProc[X,Y](s: Send[X], g: Recv[Y]): Fn[X, Y] = x => g(s(x))
+//
+//  def mkEvt[T](s: Send[T], g: Recv[T]): Evt   = (_:Unit) => s(g())
+//  type Evt       = Fn[Unit,Unit]
+//  def fire(c: Fn[Unit,Unit]): Unit = c()
+//
+//  type Queue[T]  = (Recv[T], Send[T]) // Var  // Property, Queue, Promise
+//
+//  type GetVar[T]   =Recv[Queue[T]]    // Property.create, Queue.create, Promise.create
+//  type GetCoro[X,Y]=Recv[Fn[X,Y]] // coro.create
+//
+//  // a future has a send[send[x]] // called then
+//  // a future has a recv[x]       // called await
+//
+//  def then_[X](ss: Send[Send[X]], s: Send[X]): Unit = ss(s) // obs.register; future.then; list.foreach
+//  def map[X,Y](ss: Send[Send[X]], f: Fn[X,Y]): Send[Send[X]] = ss(f) // obs.register; future.then; list.foreach
+//  def iter[T](gg: Recv[Recv[T]], s: Send[T]): Unit = foreach(gg(), s)  // let it = List.iterator(); it.next(); it.next()
+//  def x[T]: Recv[Recv[Send[Send[T]]]] = ???
+//
+//  type XXX[T]   = Get[Set[T]]   //
+//  type YYY[T]   = Set[Get[T]]   //
+//}
+
+private[drx] trait Getr[+T] {
   private[drx] def getValue: T
+//  def parent: FromRx[T]
+}
+
+private[drx] object Rx {
+  def apply[X](func: () => X/*, theParent: FromRx[X]*/)(name: String)(implicit n: Name): Rx[X] =
+    new Getr[X] with Rx[X] {
+      override def toString: String = name
+      override def getValue: X = func()
+//      override def parent: FromRx[X] = theParent
+    }
 }
 
 /* public methods for reactives. */
-trait Rx[X] {
-  private[drx] def underlying: Observable[X]
-  def id: String
+trait Rx[+X] { this: Getr[X] =>
+  def sample: X = get
+
+  //////////////////////////////////////////////////////////////////////////////
+  // Strict
+
+  @inline def mkScan[Y](init: Y)(comb: (Y, X) => Y)(implicit n: Name): Rx[Y] = {
+    val that = this
+    new DynamicRx[Y](true, n.toString, Success(init)) with Rx[Y] {
+      override protected[this] val formula: Try[Y] => Y = {x => comb(x.get, that.get)}
+    }
+  }
+
+    /** create a stateful signal, that gets its incoming value and its previous value
+    * to create the next value. fails inside a signal. */
+  @inline def scan[Y](init: Y)(comb: (Y, X) => Y)(implicit n: Name): Rx[Y] = {
+    val that = this
+    val result = new DynamicRx[Y](true, n.toString, Success(init)) with Rx[Y] {
+      override protected[this] val formula: Try[Y] => Y = {x => comb(x.get, that.get)}
+    }
+    result.start()
+    result
+  }
+
+  // TODO differentiate history aware foreach, from signal foreach
+  //      need to write history aware foreach.
+  //      make history aware foreach default.
+  //      signal foreach is for graphics?
+
+  /** this creates an callback, that is deactivated. you can do this even inside a signal.
+    * then, later and outside of signals you can start the callback.
+    * see the accompanying javafx and scalajshtml renderer for an example to use this.
+    * see also [[mkForeach]]. */
+  @inline def mkForeach[Y >: X](onNext: Y => Unit,
+                                onError: Throwable => Unit = {throw _})(implicit n: Name): Obs[X] = {
+    new Obs[X](this, onNext, onError, n)
+  }
+
+  /** creates a callback, that immediately starts running on each change.
+    * fails inside a signal, see also [[mkForeach]]. */
+  @inline def foreach(onNext: X => Unit,
+                      onError: Throwable => Unit = {throw _})(implicit n: Name): Obs[X] = {
+    val result = new Obs[X](this, onNext, onError, n)
+    result.start()
+    result
+  }
 
   //////////////////////////////////////////////////////////////////////////////
   // COMBINATORS
 
   /** create a dependent reactive. */
-  @inline def map[Y](func: X => Y, name: String = "")
-            (implicit f: sourcecode.File, l: sourcecode.Line): Rx[Y] = {
-    val that = this
-    new Rx[Y] {
-      override val id: String = Val.nameit(name,f,l)
-      override val underlying: Observable[Y] = new Observable[Y] {
-        override def getValue: Y = func(that.underlying.getValue)
-      }
-    }
-  }
+  @inline def map[Y](func: X => Y)(implicit n: Name): Rx[Y] =
+    Rx[Y](() => func(this.get))(n.toString)
 
-  @inline def filter(func: X => Boolean, name: String = "")
-            (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
-    val result = new InternalRx[X](Val.nameit("m", f, l)) with Rx[X]
-    result.formula = { () =>
-      val x = this.underlying.getValue
+  @inline def filter(func: X => Boolean)(implicit n: Name): Rx[X] =
+    Rx[X]({ () =>
+      val x = this.get
       if (func(x)) x else throw internals.emptyValExc().get
-    }
-    result
+    })(n.toString)
+
+  @inline def changes(implicit n: Name): Rx[X] = {
+    var oldValue: Try[X] = internals.emptyValExc()
+    Rx[X]{ () =>
+      val newValue = Try(this.get)
+      val result =
+        if (newValue != oldValue) newValue
+        else internals.emptyValExc()
+      oldValue = newValue
+      result.get
+    }(n.toString)
   }
 
-  @inline def mkScan[Y](init: Y, name: String = "f")(comb: (Y, X) => Y)
-                       (implicit f: sourcecode.File, l: sourcecode.Line): Rx[Y] = {
-    val result = new InternalRx[Y](Val.nameit(name,f,l)) with Rx[Y]
-    result.remember = true
-    result.value = Success(init)
-    result.formula = () => {
-      comb(result.value.get, this.underlying.getValue)}
-    result
-    // (..., owner: VarLike = internals.dummyOwner)
-    // internals.checksafety(this, owner)
+  @inline def hold[Y >: X](init: Y)(implicit n: Name): Rx[Y] = {
+    var oldValue: Try[Y] = Success(init)
+    Rx[Y]{ () =>
+      val newValue = Try(this.get)
+      if (newValue.isFailure && newValue.failed.get.isInstanceOf[EmptyValExc])
+        oldValue.get
+      else {
+        oldValue = newValue
+        oldValue.get
+      }
+    }(n.toString)
   }
 
-  /** create a stateful signal, that gets its incoming value and its previous value
-    * to create the next value. fails inside a signal. */
-  @inline def scan[Y](init: Y, name: String = "f")(comb: (Y, X) => Y)
-                     (implicit f: sourcecode.File, l: sourcecode.Line): Rx[Y] = {
-    val result = mkScan(init, name)(comb)(f, l)
-    result.observe {_ => }
-    result
-  }
+  @inline def zip[Y](rx2: Rx[Y])(implicit n: Name): Rx[(X,Y)] =
+    Rx[(X,Y)](() => (this.get, rx2.get))(n.toString)
 
-  /** this creates an callback, that is deactivated. you can do this even inside a signal.
-    * then, later and outside of signals you can start the callback.
-    * see the accompanying javafx and scalajshtml renderer for an example to use this.
-    * see also [[mkObs]]. */
-  @inline def mkObs(onNext: X => Unit,
-                    onStart: () => Unit = ()=>{},
-                    onError: Throwable => Unit = {throw _})
-           (implicit f: sourcecode.File, l: sourcecode.Line): Obs[Unit] = {
-    val result = new InternalRx[Unit](Val.nameit("o",f,l)) with Obs[Unit] {
-      override def onstart(): Unit = onStart()
-    }
-    result.formula = () => {
-      val tmp = Try(underlying.getValue)
-      withInstant(_.runLater{ () => tmp match {
-        case Success(value)     => onNext(value)
-        case Failure(exception) => onError(exception)
-      }})
-      throw internals.emptyValExc().get
-    }
-    result
-  }
-
-  /** creates a callback, that immediately starts running on each change.
-    * fails inside a signal, see also [[mkObs]]. */
-  @inline def observe(callback: X => Unit)
-             (implicit f: sourcecode.File, l: sourcecode.Line): Obs[Unit] = {
-    val result = mkObs(callback)(f, l)
-    result.start()
-    result
-  }
-
-  @inline def changes(name: String = "")
-                     (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
-    val result: Rx[X] = new InternalRx[X](Val.nameit("m",f,l)) with Rx[X] {
-      remember = true
-      formula = () => value.get
-    }
-    result
-  }
-
-  @inline def hold(init: X, name: String = "")
-                  (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
-    val result: Rx[X] = new InternalRx[X](Val.nameit("m",f,l)) with Rx[X] {
-      value = Success(init)
-      remember = true
-      formula = () => value.get
-    }
-    result
-  }
-
-//  // TODO? currently fires on both changes and returns only the second... thats not 'snapshot'.
+  //  // TODO? currently fires on both changes and returns only the second... thats not 'snapshot'.
 //  //       this is just rx.zip.map(._2)
 //  @inline def snapshot(stream: Rx[_])
 //                      (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
@@ -122,39 +151,23 @@ trait Rx[X] {
   //////////////////////////////////////////////////////////////////////////////
   // get, sample
 
-  /** Returns the current value of this signal.
-    * Calling .get on a stream will fail with an Exception.
+  /** Returns the current value of a rx, or raises a [[EmptyValExc]].
     *
-    * Only works inside of Signal(...) expressions,
-    * where it will create a dependency from 'this' to the Signal(...), so that
+    * If used inside a Dynamic Expression ([[Val]], [[Scan]], ...),
+    * it will create a dependency from 'this' to the Expression, so that
     * the Signal(...) will reevaluate, when 'this' reevaluates.
     *
-    * See also [[sample]]. */
+    * If used outside a Dynamic Expression,
+    * it will just return the current value. */
   @inline def get: X = {
-    if (internals.activeRx.value.isEmpty)
-      throw new RuntimeException("Do not get outside of Signal(...)! Hint: use .sample()")
-    underlying.getValue
-  }
-
-  /** Returns the current value of a signal,
-    * or raises a EmptryStream Exception for streams.
-    *
-    * Only works outside of Signal(...) expressions.
-    * It does not create a dependency between any reactives.
-    *
-    * See also [[get]]. */
-  @inline def sample: X = {
-    if (internals.activeRx.value.isDefined)
-      throw new RuntimeException("Do not sample inside of Signal(...)! Hint: use .get()")
-
-    if (internals.withRetries) {
+    if (internals.activeRx.value.isDefined && internals.withRetries) {
       var tmp: Option[X] = None
-      val obs = this.mkObs(x => tmp = Some(x))
-      withInstant.activeCtx.withValue(None) { obs.start() }
+      val obs = this.mkForeach(x => tmp = Some(x))
+      withInstant.activeInstant.withValue(None) { obs.start() }
       obs.stop()
       tmp.getOrElse(throw internals.emptyValExc().get)
     } else
-      underlying.getValue
+      getValue
   }
 
 }
@@ -162,30 +175,28 @@ trait Rx[X] {
 //////////////////////////////////////////////////////////////////////////////
 // Sinks
 
-trait Obs[X] extends InternalRx[X] {
-  def onstart(): Unit = {}
+class Obs[+X] private[drx](in: Rx[X],
+                                    onNext: X => Unit,
+                                    onError: Throwable => Unit, n: Name)
+  extends DynamicRx[Unit](false, n.toString) {
 
-  private[drx] override def freeze(): Unit = {
-    stop()
-    super.freeze()
-  }
+  override def start(): Unit = super.start()
+  override def stop(): Unit = super.stop()
 
-  def isForced: Boolean = forceActive
+  override protected[this] val formula: Try[Unit] => Unit = { _ =>
 
-  def start(): Unit = {
-    if (internals.activeRx.value.isDefined) throw new RuntimeException(
-      "You are starting an observer / creating a fold inside a signal. " +
-      "That may lead to memory leaks.")
-
-    if (!forceActive) {
-      onstart()
-      forceActive = true
-      withInstant(_.markRx(this))
+    try {
+      val x = in.get
+      withInstant(_.runLater(() => onNext(x)))
+    } catch {
+      case _: EmptyValExc =>
+      case e: Throwable => withInstant(_.runLater(() => onError(e)))
     }
-  }
 
-  def stop(): Unit = if (forceActive) {
-    forceActive = false
-    getIns.foreach(_.unpushto(this))
   }
 }
+
+//  override private[drx] def freeze(): Unit = {
+//    stop()
+//    onFreeze()
+//  }
