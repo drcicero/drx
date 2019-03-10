@@ -18,13 +18,15 @@ import scala.io.StdIn
 // thanks to https://github.com/lihaoyi/workbench-example-app/tree/autowire-akka-http
 
 object Server {
+  val SECONDS = 15
+
   var log = mutable.Map[String, mutable.ListBuffer[String]]()
   var waiting = mutable.Map[String, Promise[String]]()
   var cleanup = mutable.Map[String, Promise[String]]()
 
   def timeoutElse[X](x: Future[X], i: Long)(alt: () => X): Future[X] =
     Future.firstCompletedOf(Seq(x,
-      Future { Thread.sleep(10000); alt() }))
+      Future { Thread.sleep(i); alt() }))
 
   def main(args: Array[String]): Unit = {
     implicit val system = ActorSystem()
@@ -36,6 +38,7 @@ object Server {
         path("viz.js") { getFromFile("viz.js") } ~
         path("todojs.js") { getFromFile {
           "/tmp/sbt/" + new java.io.File("").getAbsolutePath().replace("/", "-") + "-todojs/scala-2.12/todojs-fastopt.js"
+//          "/tmp/sbt/" + new java.io.File("").getAbsolutePath().replace("/", "-") + "-todojs/scala-2.12/todojs-opt.js"
         } } ~
         path("quit") { system.terminate(); complete{ "goto /index.html" } }
       } ~
@@ -64,7 +67,7 @@ object Server {
             } else {
               println("waiting {")
               val promise = Promise[String]()
-              val thefuture = timeoutElse(promise.future, 5000) { () => this.synchronized {
+              val thefuture = timeoutElse(promise.future, SECONDS * 1000) { () => this.synchronized {
                 if (!waiting(name).isCompleted) {
                   println("} timeout")
                   val news = log.getOrElseUpdate(name, mutable.ListBuffer()).toSeq; log(name).clear()

@@ -1,6 +1,7 @@
 import RxDom.insertChild
 import scalatags.JsDom.all._
 import org.scalajs.dom
+import platform.platform
 
 /** Created by david on 05.05.17. */
 
@@ -9,6 +10,9 @@ import org.scalajs.dom
 object Main {
 
   def main(args: Array[String]): Unit = {
+    dom.document.body.appendChild(
+      button("measurements", onclick:={ () => dom.window.alert(""+platform.measurements) }).render
+    )
     insertChild(dom.document.body,
       div(
         button(onclick:={ () => AppTodo.main() }, "todojs"),

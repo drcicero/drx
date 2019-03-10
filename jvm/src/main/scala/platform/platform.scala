@@ -3,6 +3,8 @@ package platform
 import java.io.File
 import java.nio.file.{Files, Paths}
 
+import scala.collection.mutable
+
 /** Created by david on 17.09.17. */
 object platform {
 
@@ -35,5 +37,9 @@ object platform {
     i += 1
     Files.write(Paths.get(s"debuggraphs/graph$i.dot"), drx.debug.stringit(desc=desc).getBytes())
   }
+
+  val measurements: mutable.ListBuffer[Double] = mutable.ListBuffer()
+  def startMeasure(): Unit = {}
+  def endMeasure(): Unit =   {}
 
 }

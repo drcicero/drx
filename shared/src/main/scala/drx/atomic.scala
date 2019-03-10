@@ -9,21 +9,25 @@ import scala.util.DynamicVariable
   * instead of after each change. */
 object atomic {
   def apply[X](changer: => X): X = withInstant { _ => changer }
+  var waiting: mutable.Set[String] = mutable.Set()
+  private[drx] var postponedEffects = mutable.ListBuffer[() => Unit]()
 }
 
-private[drx] object withInstant {
-  val activeInstant: DynamicVariable[Option[Instant]] = new DynamicVariable(None)
+/* private[drx] */object withInstant {
+  private[drx] val activeInstant: DynamicVariable[Option[Instant]] = new DynamicVariable(None)
 
   def apply[X](changer: Instant => X): X = {
     activeInstant.value match {
       case Some(tx) => changer(tx)
       case None     =>
+        platform.platform.startMeasure()
         val tx = new Instant()
         val tmp = activeInstant.withValue(Some(tx)) {
           val tmp = changer(tx)
           tx.processChanges()
           tmp
         }
+        platform.platform.endMeasure()
         tmp
     }
   }
@@ -45,6 +49,7 @@ private class Instant {
     shouldPush.add(it); if (!dirty.contains(it)) dirty.offer(it) }
   def resubmit(it: InstantRx): Unit = if (dirty.remove(it)) dirty.add(it)
 
+  def runBeforeWait(it: () => Unit): Unit  = beforewait += it
   def runLater(it: () => Unit): Unit  = effects += it
 
   // private //////////////////////////////////////////////////
@@ -57,6 +62,7 @@ private class Instant {
 //private[drx] val ready        = mutable.Set[InstantRx[_]]() // parallel
   private[drx] val clean        = mutable.Set[InstantRx]()
   private      val effects      = mutable.ListBuffer[() => Unit]() // warning: do not use a set, else similar-but-not-equal effects will be dropped ?
+  private      val beforewait   = mutable.Set[() => Unit]()
 
   @tailrec final private[drx] def processChanges(): Unit = {
     if (DEBUGLOG) println((dirtySources.map(_.toString).mkString(" "),
@@ -71,11 +77,25 @@ private class Instant {
     processLowerOrEqual(Int.MaxValue)
     debug.writeToDisk("DONE")
 
-    clean.foreach(_.cleanup()); shouldPush.clear(); clean.clear()
+    clean.foreach(_.cleanup())
+    shouldPush.clear()
+    clean.clear()
     debug.writeToDisk("CLEAR")
 
-    effects.foreach(_ ())
-    effects.clear()
+    beforewait.foreach(_ ())
+    beforewait.clear()
+    if (atomic.waiting.isEmpty) {
+      log += s"eff ${effects.size} ${atomic.postponedEffects.size}; "
+      atomic.postponedEffects.foreach(_ ())
+      atomic.postponedEffects.clear()
+      effects.foreach(_ ())
+      effects.clear()
+    } else {
+      // TODO make a list of postponedEffects with ID and apply one by one
+      log += s"ppeff ${effects.size} ${atomic.postponedEffects.size}; ${atomic.waiting}"
+      atomic.postponedEffects ++= effects
+      effects.clear()
+    }
 
     if (DEBUGLOG) { println(log); log = "" }
     if (dirtySources.nonEmpty || dirty.size() != 0) processChanges()
@@ -110,5 +130,5 @@ private class Instant {
     scala.collection.JavaConverters.asScalaIterator(queue.iterator()).toSet
 //  private def str(sig: InternalRx[_]): String = sig.level + ":" + sig.id
   private var log = ""
-  private val DEBUGLOG = false
+  private val DEBUGLOG = true
 }

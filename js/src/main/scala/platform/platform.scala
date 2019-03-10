@@ -4,6 +4,7 @@ import drx.{Obs, Rx}
 import org.scalajs.dom
 
 import scala.scalajs.js
+import scala.collection.mutable
 
 /** Created by david on 17.09.17. */
 object platform {
@@ -26,4 +27,8 @@ object platform {
   }
 
   def writeToDisk(desc:String=""): Unit = {}
+
+  val measurements: mutable.ListBuffer[Double] = mutable.ListBuffer()
+  def startMeasure(): Unit = measurements += js.Date.now() //scala.scalajs.js.Performance.now()
+  def endMeasure(): Unit =   measurements += js.Date.now() //scala.scalajs.js.Performance.now()
 }

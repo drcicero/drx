@@ -31,14 +31,15 @@ object AppChat {
   def getAllOthers[X](sig: Rx[X], id: String, startup: () => X)
                      (implicit e: ReadWriter[X]): Rx[(ClientId, X)] = {
     Network.offer(sig, startup, id)
-    Network.sub[X](sig.sample, id)
+    Network.sub[X](sig.sample, id, true)
   }
 
   def main(): Unit = {
 
     val dcommonHistory: Rx[Seq[(String, Msg)]] = getAllOthers(localHistory.diffs, "history", ()=>localHistory.aggregate.get.toSeq)
+//    val dcommonHistory: Rx[Seq[(String, Msg)]] = getAllOthers(localHistory.aggregate, "history", ()=>localHistory.aggregate.get)
       .map { case (clientId, lmsg) =>
-        lmsg.map{ case (x,y) => x -> Msg(y.id, y.timestamp, y.content, clientId) }}
+        lmsg.toSeq.map{ case (x,y) => x -> Msg(y.id, y.timestamp, y.content, clientId) }}
     val commonHistory: Rx[Map[String, Msg]] = dcommonHistory
       .scan(Map[String, Msg]()){ case (state, event) =>
         (state ++ event) filter { _._2 != null }
@@ -51,7 +52,7 @@ object AppChat {
 
     val obj = div(
       h1("CHAT"),
-      rxInput(localnick, Val(placeholder:=Network.localId)),
+      rxInput(localnick, Val(placeholder:=Network.thisClient)),
       div(dcommonHistory.dmapmap{ msg =>
         if (dom.window.innerHeight + dom.window.pageYOffset + 10 > dom.document.documentElement.scrollHeight)
           scala.scalajs.js.timers.setTimeout(1) (dom.document.body.lastElementChild.lastElementChild.scrollIntoView())

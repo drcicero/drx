@@ -178,7 +178,7 @@ trait Rx[+X] { this: Getr[X] =>
 class Obs[+X] private[drx](in: Rx[X],
                                     onNext: X => Unit,
                                     onError: Throwable => Unit, n: Name)
-  extends DynamicRx[Unit](false, n.toString) {
+  extends DynamicRx[Unit](true, n.toString) {
 
   override def start(): Unit = super.start()
   override def stop(): Unit = super.stop()
