@@ -3,7 +3,7 @@ package drx
 object Extras {
   /* allow folds */
   def lazyExtAttr[X,Y](func: X => Y, name: String=""): X => Y = {
-    val cache = new platform.platform.WeakMap[X, Y]()
+    val cache = concreteplatform.WeakMap[X, Y]()
 
     x: X => {
 //      var neednew = ""

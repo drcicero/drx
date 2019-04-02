@@ -1,49 +1,16 @@
-package drx
+package drx.graph
+
+import drx.internals.EmptyValExc
+import drx.{Name, graph, internals, withInstant}
 
 import scala.util.{Success, Try}
-
-//object TypeMath {
-//  type Fn[X,Y] = X => Y             // Proc // Can Return Different Values! Can Fail! Can Block/Take Long Time!
-//  def apply[X,Y](c: Fn[X,Y]): Y = c()
-//
-//  type Recv[T]   = Fn[Unit,T]       // Get  // Stdin.readln; Point.getX; Channel.recv; Future.await, Iterable.next()
-//  type Send[T]   = Fn[T,Unit]       // Set  // Stdout.println; Point.setX; Channel.send; Future.new
-//
-//  def foreach[T](g: Recv[T], s: Send[T]): Unit = fork {try{ while (true) s(g()) } catch { case NoSuchElementException => }}
-//  def mkProc[X,Y](s: Send[X], g: Recv[Y]): Fn[X, Y] = x => g(s(x))
-//
-//  def mkEvt[T](s: Send[T], g: Recv[T]): Evt   = (_:Unit) => s(g())
-//  type Evt       = Fn[Unit,Unit]
-//  def fire(c: Fn[Unit,Unit]): Unit = c()
-//
-//  type Queue[T]  = (Recv[T], Send[T]) // Var  // Property, Queue, Promise
-//
-//  type GetVar[T]   =Recv[Queue[T]]    // Property.create, Queue.create, Promise.create
-//  type GetCoro[X,Y]=Recv[Fn[X,Y]] // coro.create
-//
-//  // a future has a send[send[x]] // called then
-//  // a future has a recv[x]       // called await
-//
-//  def then_[X](ss: Send[Send[X]], s: Send[X]): Unit = ss(s) // obs.register; future.then; list.foreach
-//  def map[X,Y](ss: Send[Send[X]], f: Fn[X,Y]): Send[Send[X]] = ss(f) // obs.register; future.then; list.foreach
-//  def iter[T](gg: Recv[Recv[T]], s: Send[T]): Unit = foreach(gg(), s)  // let it = List.iterator(); it.next(); it.next()
-//  def x[T]: Recv[Recv[Send[Send[T]]]] = ???
-//
-//  type XXX[T]   = Get[Set[T]]   //
-//  type YYY[T]   = Set[Get[T]]   //
-//}
-
-private[drx] trait Getr[+T] {
-  private[drx] def getValue: T
-//  def parent: FromRx[T]
-}
 
 private[drx] object Rx {
   def apply[X](func: () => X/*, theParent: FromRx[X]*/)(name: String)(implicit n: Name): Rx[X] =
     new Getr[X] with Rx[X] {
       override def toString: String = name
       override def getValue: X = func()
-//      override def parent: FromRx[X] = theParent
+      //      override def parent: FromRx[X] = theParent
     }
 }
 
@@ -61,7 +28,7 @@ trait Rx[+X] { this: Getr[X] =>
     }
   }
 
-    /** create a stateful signal, that gets its incoming value and its previous value
+  /** create a stateful signal, that gets its incoming value and its previous value
     * to create the next value. fails inside a signal. */
   @inline def scan[Y](init: Y)(comb: (Y, X) => Y)(implicit n: Name): Rx[Y] = {
     val that = this
@@ -110,7 +77,7 @@ trait Rx[+X] { this: Getr[X] =>
 
   @inline def changes(implicit n: Name): Rx[X] = {
     var oldValue: Try[X] = internals.emptyValExc()
-    Rx[X]{ () =>
+    graph.Rx[X]{ () =>
       val newValue = Try(this.get)
       val result =
         if (newValue != oldValue) newValue
@@ -137,16 +104,16 @@ trait Rx[+X] { this: Getr[X] =>
     Rx[(X,Y)](() => (this.get, rx2.get))(n.toString)
 
   //  // TODO? currently fires on both changes and returns only the second... thats not 'snapshot'.
-//  //       this is just rx.zip.map(._2)
-//  @inline def snapshot(stream: Rx[_])
-//                      (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
-//    val result = new InternalRx[X](Val.nameit("snap",f,l)) with Rx[X]
-//    result.formula = () => {
-//      stream.annotateGet
-//      this.annotateGet
-//    }
-//    result
-//  }
+  //  //       this is just rx.zip.map(._2)
+  //  @inline def snapshot(stream: Rx[_])
+  //                      (implicit f: sourcecode.File, l: sourcecode.Line): Rx[X] = {
+  //    val result = new InternalRx[X](Val.nameit("snap",f,l)) with Rx[X]
+  //    result.formula = () => {
+  //      stream.annotateGet
+  //      this.annotateGet
+  //    }
+  //    result
+  //  }
 
   //////////////////////////////////////////////////////////////////////////////
   // get, sample
@@ -171,32 +138,3 @@ trait Rx[+X] { this: Getr[X] =>
   }
 
 }
-
-//////////////////////////////////////////////////////////////////////////////
-// Sinks
-
-class Obs[+X] private[drx](in: Rx[X],
-                                    onNext: X => Unit,
-                                    onError: Throwable => Unit, n: Name)
-  extends DynamicRx[Unit](true, n.toString) {
-
-  override def start(): Unit = super.start()
-  override def stop(): Unit = super.stop()
-
-  override protected[this] val formula: Try[Unit] => Unit = { _ =>
-
-    try {
-      val x = in.get
-      withInstant(_.runLater(() => onNext(x)))
-    } catch {
-      case _: EmptyValExc =>
-      case e: Throwable => withInstant(_.runLater(() => onError(e)))
-    }
-
-  }
-}
-
-//  override private[drx] def freeze(): Unit = {
-//    stop()
-//    onFreeze()
-//  }

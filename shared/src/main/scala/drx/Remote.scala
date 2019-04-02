@@ -1,24 +1,25 @@
+package drx
+
 import java.util.concurrent.ThreadLocalRandom
 
-import Network.ClientId
-import drx.{Obs, Rx, SeqVar, Var}
+import concreteplatform.executionContext
+import drx.Network.ClientId
+import drx.graph.{Obs, Rx, SeqVar, Var}
+import upickle.default
 import upickle.default.{ReadWriter, macroRW, read, readwriter, write}
 
 import scala.collection.mutable
-import org.scalajs.dom.experimental.{Fetch, HttpMethod, RequestInit}
-import upickle.default
-
-import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
-import scala.scalajs.js.typedarray.Uint8Array
 import scala.util.{DynamicVariable, Failure, Success, Try}
 
 private sealed trait Msgi
 private case class Listen(source: Network.ClientId, id: String, sync: Boolean) extends Msgi
+private case class UnListen(source: Network.ClientId, id: String, sync: Boolean) extends Msgi
 private case class Change(source: Network.ClientId, id: String, payload: String, sync: Boolean) extends Msgi
 private case class Quiescent(source: Network.ClientId) extends Msgi
 private object Msgi       { implicit val rw: ReadWriter[Msgi] = ReadWriter.merge(Listen.rw, Change.rw, Quiescent.rw) }
 private object Listen     { implicit val rw: ReadWriter[Listen] = macroRW }
+private object UnListen   { implicit val rw: ReadWriter[Listen] = macroRW }
 private object Change     { implicit val rw: ReadWriter[Change] = macroRW }
 private object Quiescent  { implicit val rw: ReadWriter[Quiescent] = macroRW }
 
@@ -64,39 +65,30 @@ object Network {
     offeredRx(id) = Offer(rx, id, e, startup)
   }
 
-  def startHeartbeat(): Unit = heartbeat().onComplete {
-    case Success(s) => scala.scalajs.js.timers.setTimeout(500)(startHeartbeat())
-    case Failure(e) => throw e
+  def getAllOthers[X](sig: Rx[X], id: String, startup: () => X)
+                     (implicit e: ReadWriter[X]): Rx[(ClientId, X)] = {
+    Network.offer(sig, startup, id)
+    Network.sub[X](sig.sample, id, false)
   }
 
-  /* --- fetch ---------------------------------------- */
-
-  def fetchText(url: String): Future[String] =
-    Fetch.fetch(url, RequestInit(HttpMethod.GET))
-      .toFuture.flatMap(x => x.text.toFuture)
-
-  // https://stackoverflow.com/questions/9267899/arraybuffer-to-base64-encoded-string/11562550#11562550
-  def fetchBase64(url: String): Future[String] =
-    Fetch.fetch(url, RequestInit(HttpMethod.GET))
-      .toFuture.flatMap(x => x.arrayBuffer.toFuture).map { x =>
-      val btoa = org.scalajs.dom.window.btoa _
-      val fromCharCode = scalajs.js.Dynamic.global.String.fromCharCode
-      btoa(fromCharCode.applyDynamic("apply")(
-        (), new Uint8Array(x)).asInstanceOf[String])
-    }
-
-  def fpost(url: String, body: String): Future[String] =
-    Fetch.fetch(url, RequestInit(HttpMethod.POST, body = body))
-      .toFuture.flatMap(x => x.text.toFuture)
+  def startHeartbeat(): Unit = heartbeat().onComplete {
+    case Success(s) => concreteplatform.after(500)(startHeartbeat)
+    case Failure(e) => throw e
+  }
 
   /* --- private --------------------------------------- */
 
   private def getOrCreateVar[X](xRW: default.ReadWriter[X], remoteId: ClientId, hashCode: String) = {
     subscribedRx.getOrElseUpdate(
       (remoteId, hashCode),
-      Sub(notYetRx remove (remoteId, hashCode)
-        map (it => Var[X](read(it)(xRW)) )
-        getOrElse Var.mkEmptyVar[X], xRW, false)
+      Sub(notYetRx
+        remove (remoteId, hashCode)
+        map { it =>
+          val remoteVar = Var[X](read(it)(xRW))
+          remoteVar
+        }
+        getOrElse Var.mkEmptyVar[X],
+        xRW, false)
     ).rx.asInstanceOf[Var[X]]
   }
 
@@ -119,20 +111,20 @@ object Network {
     )
 
   /* publish a variable */
-  private var pubConf = new DynamicVariable[Option[(ClientId, Boolean)]](None)
+  private val pubConf = new DynamicVariable[Option[(ClientId, Boolean)]](None)
   private def pub[X](offer: Offer[X]): Unit = {
     //if (ignore) return
     println(s"new pub ${offer.id} ${offer.rx}")
     pubConf.value foreach { case (to, sync) =>
       if (!publishedRx.contains((offer.rx, to))) {
         enqueueChange(offer, to, sync, offer.startup())
-        val obs = offer.rx
+        val outboxObs = offer.rx
           .map /* map vs foreach? */ { value =>
             pubConf.withValue(Some((to, sync))) {
               enqueueChange(offer, to, sync, value) }}
           .mkForeach(_ => ())
-        publishedRx((offer.rx, to)) = obs
-        drx.withInstant(_.runLater(() => obs.start()))
+        publishedRx((offer.rx, to)) = outboxObs
+        drx.withInstant(_.runLater(() => outboxObs.start()))
       }
     }
   }
@@ -147,7 +139,7 @@ object Network {
 
   var knownClients: Set[ClientId] = Set()
   private def heartbeat(): Future[Unit] = {
-    fpost("./pull/" + thisClient, "").map { blob =>
+    concreteplatform.fpost("./pull/" + thisClient, "").map { blob =>
       val (aliveClients, news) = read[(Set[ClientId], Seq[String])](blob)
 
       val killedClients = knownClients -- aliveClients
@@ -197,10 +189,10 @@ object Network {
   private def sendOut(messagebuffer: Seq[Seq[(String, Msgi)]]): Unit = {
     val tmp = messagebuffer.flatten
     if (tmp.isEmpty) return
-    fpost("./push", write(tmp.map { case (a,b) => (a, write(b)) }))
+    concreteplatform.fpost("./push", write(tmp.map { case (a,b) => (a, write(b)) }))
   }
 
-  def bufferTime[X](incoming: Rx[X], before: Int, between: Int)
+  def bufferTime[X](incoming: Rx[X], beforeMillis: Int, betweenMillis: Int)
                    (implicit readWriter: ReadWriter[X]): Var[Seq[X]] = {
     val buffer = mutable.ListBuffer[X]()
     var running = false
@@ -211,7 +203,7 @@ object Network {
         val tmp = Seq() ++ buffer
         buffer.clear()
         outgoing set tmp
-        scala.scalajs.js.timers.setTimeout(between){ f() }
+        concreteplatform.after(betweenMillis)(f)
       } else {
         running = false
       }
@@ -221,7 +213,7 @@ object Network {
       buffer ++= Seq(x)
       if (!running) {
         running = true
-        scala.scalajs.js.timers.setTimeout(before){ f() }
+        concreteplatform.after(beforeMillis)(f)
       }
     } foreach (_ => ())
 

@@ -1,10 +1,9 @@
-package drx
+package drx.graph
 
 //import java.lang.ref.Cleaner
 
-import upickle.default._
+import drx.{Name, internals, withInstant}
 
-import scala.collection.mutable
 import scala.util.{Success, Try}
 
 object Var {
@@ -15,11 +14,6 @@ object Var {
 
   def mkEmptyVar[X](implicit n: Name): Var[X] =
     new Var[X](internals.emptyValExc())(n)
-}
-
-object SeqVar {
-  def apply[X]()(implicit n: Name): SeqVar[X] =
-    new SeqVar()(n)
 }
 
 // Distributed Programming: Building Functional Refuges inside Imperative Chaos
@@ -47,28 +41,6 @@ sealed class Var[X] private[drx](protected var buffer: Try[X])(implicit n: Name)
 //  // into proxies/wrappers that only weakref the real Rx.
 //  // Then we can kill/stop them in the finalizer.
 //  override def finalize(): Unit = { rxit.freeze() }
-}
-
-sealed class SeqVar[X] private[drx](protected val buffer: mutable.Buffer[X] = mutable.Buffer[X]())(implicit n: Name)
-  extends DynamicRx[Seq[X]](
-    true, // actually false?
-    n.toString,
-    Success(Seq() ++ buffer)) with Rx[Seq[X]] {
-
-  forceObserved = true
-
-  def set(newValue: X): Unit = {
-    buffer ++= Seq(newValue)
-    withInstant(_.ensureSource(this))
-  }
-
-  def set(newValue: Seq[X]): Unit = if (newValue.nonEmpty) {
-    buffer ++= newValue
-    withInstant(_.ensureSource(this))
-  }
-
-  override protected[this] val formula: Try[Seq[X]] => Seq[X] =
-    _ => { val tmp = Seq() ++ buffer; buffer.clear(); tmp }
 }
 
 // TODO parallel

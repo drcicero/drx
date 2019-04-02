@@ -1,3 +1,4 @@
+import drx.graph.{Obs, Rx}
 import drx.{Obs, Rx, internals}
 import org.scalajs.dom
 import org.scalajs.dom.Element
@@ -12,6 +13,8 @@ import scala.scalajs.js
 
 // TODO never .render followed by appendChild. Then the component was not activated...
 //      maybe fixed now
+
+// TODO maybe convert to Frags instead of Modifiers
 
 /** Created by david on 15.09.17. */
 object RxDom {

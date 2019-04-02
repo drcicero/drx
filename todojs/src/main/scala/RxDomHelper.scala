@@ -4,6 +4,7 @@ import org.scalajs.dom.html.{Div, Input}
 import scalatags.JsDom.TypedTag
 import scalatags.JsDom.all._
 import RxDom._
+import drx.graph.{Rx, Var}
 import org.scalajs.dom.Element
 import scalatags.generic.StylePair
 

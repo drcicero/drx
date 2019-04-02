@@ -14,30 +14,30 @@ object atomic {
 }
 
 /* private[drx] */object withInstant {
-  private[drx] val activeInstant: DynamicVariable[Option[Instant]] = new DynamicVariable(None)
+  private[drx] val activeInstant: DynamicVariable[Option[atomic]] = new DynamicVariable(None)
 
-  def apply[X](changer: Instant => X): X = {
+  def apply[X](changer: atomic => X): X = {
     activeInstant.value match {
       case Some(tx) => changer(tx)
       case None     =>
-        platform.platform.startMeasure()
-        val tx = new Instant()
+        concreteplatform.startMeasure()
+        val tx = new atomic()
         val tmp = activeInstant.withValue(Some(tx)) {
           val tmp = changer(tx)
           tx.processChanges()
           tmp
         }
-        platform.platform.endMeasure()
+        concreteplatform.endMeasure()
         tmp
     }
   }
 }
 
 /** this context implements glitch-freeness */
-private class Instant {
+private class atomic {
   // drx-interface //////////////////////////////////////////////////
 
-  type InstantRx = DynamicRx[_]
+  type InstantRx = graph.DynamicRx[_]
 
   def markSource(it: InstantRx): Unit = if (!dirtySources.add(it))
     throw new RuntimeException("variable "+it+" can only be set once per transaction.")

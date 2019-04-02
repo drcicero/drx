@@ -1,6 +1,7 @@
 package main
 
 import drx._
+import drx.graph.{Obs, Rx, Var}
 
 /** Created by david on 10.06.17. */
 object Main {

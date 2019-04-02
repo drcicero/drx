@@ -1,19 +1,13 @@
 package drx
 
+import drx.graph.{DynamicRx, Obs}
+import drx.internals.EmptyValExc
+
 import scala.collection.mutable
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 /** Created by david on 10.06.17. */
 object debug {
-
-  /** only for ghost testing / debugging variables */
-  class NoMap[K, V] {
-    def update(a: K, b: V): Unit = Unit
-    def map[R](x: (K, V) => R): List[R] = List.empty
-    def keys: List[K] = List.empty
-    def size = 0
-  }
-
   val evaluating: mutable.Set[DynamicRx[_]] = mutable.Set()
 
   def ellipsis(tmp: String): String =
@@ -80,7 +74,7 @@ object debug {
     def mapIt(kv: (String, collection.immutable.Set[DynamicRx[_]])) = {
       val (k, l) = kv
 
-      def intime(f: Instant => mutable.Set[DynamicRx[_]])(it: DynamicRx[_]) =
+      def intime(f: atomic => mutable.Set[DynamicRx[_]])(it: DynamicRx[_]) =
         withInstant.activeInstant.value.exists(f(_) contains it)
 
       def count =
@@ -190,26 +184,26 @@ object debug {
   }
 
   //////////////////////////////////////////////////////////////////////////////
-  // platform specific
 
-  private[drx] val debugRxs = platform.platform.PotentialWeakHashMap[DynamicRx[_], Unit]()
+  private[drx] val debugRxs = concreteplatform.WeakSetOrNot[DynamicRx[_], Unit]()
 
   var hook: String => Unit = { _ => }
 
   def writeToDisk(str: String): Unit = {
-    hook(str)
-    platform.platform.writeToDisk(str)
+    val heap = " heap{ " + concreteplatform.heapSize() + " }"
+    hook(str + heap)
+    concreteplatform.writeToDisk(str + heap)
   }
 
   def printless(): Unit = {
-    println(platform.platform.heapSize())
+    println(concreteplatform.heapSize())
     //    println("v=" + debugVars.size + " s=" + debugSigs.size +
     //      " o=" + debugObs.size + " heap=" + compat2.heapSize() / 10000000)
   }
 
   def doit(): Unit = {
     printless()
-    for (i <- 0 to 5) platform.platform.gc()
+    for (i <- 0 to 5) concreteplatform.gc()
     printless()
   }
 }

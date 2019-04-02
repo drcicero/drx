@@ -2,69 +2,27 @@
 
 // TODO hm, folds must be toplevel or inside Extra.lazyExtAttr blocks...?
 
-import java.util.concurrent.ThreadLocalRandom
-
-import org.scalajs.dom
-import org.scalajs.dom.html.{Element, UList}
-import scalatags.JsDom
+import drx.graph.Var
+import main.{Task, Todolist}
 
 import scala.collection.mutable
 import scala.scalajs.js
 
-//import Network._
+//import drx.Network._
 import RxDom._
 import RxDomHelper._
 import drx._
 import org.scalajs.dom
 import scalatags.JsDom
 import scalatags.JsDom.all._
-import upickle.default.{ReadWriter, macroRW}
 
-import scala.language.implicitConversions
+//import scala.language.implicitConversions
 
 object AppTodo {
 
-  val fullName: Var[String] = Var("")
-
-  case class Task(id: String, title: Var[String], done: Var[Boolean])
-//  object Task { implicit def rw: ReadWriter[Task] = macroRW }
-
-  val model = new IncMap[Task]()
-
-  //  val model2 = new Store((Task.apply _).tupled, "model")
   val todoTextColor: Var[String] = Var("green")
-  def makeNewTodo(value: String): Unit = model.update {
-    val rnd = ThreadLocalRandom.current().nextLong().toHexString
-    Seq(rnd -> Task(rnd, Var(value), Var(false)))
-  }
-  def clearDoneTodos(store: IncMap[Task]): Unit = {
-    store.update(store.aggregate.sample.toSeq
-      filter (_._2.done.sample)
-      map (kv => (kv._1, null)))
-  }
-  def clearEmptyTodos(store: IncMap[Task]): Unit = {
-    store.update(store.aggregate.sample.toSeq
-      filter (_._2.title.sample.isEmpty)
-      map (kv => (kv._1, null)))
-  }
-
-  // snake game
-//  val clock = Var(0)
-//  class Cell(val x: Int, val y: Int, c: Int) extends VarOwner {
-//    val content: Var[Int] = mkVar(c, "c")
-//    override def toString: String = content.sample.toString
-//  }
-//  val game = new Store((xyc: (Int, Int, Int)) => new Cell(xyc._1, xyc._2, xyc._3), "game")
-//  def tick(): Unit = {}
-//  def rxCell(cell: Cell): JsDom.TypedTag[dom.html.Div] = {
-//    div(
-//      Signal(style:="position:absolute;left:"+(100*cell.x/10.0)+"%;top:"+(100*cell.y/10.0)+"%;width:9%;height:9%;background:rgba("+(cell.content.get*255.0/3)+",0,0,1)")
-//    )
-//  }
 
   def main(): Unit = {
-//    val ximg = Var("")
-
     val svg_container = dom.document.querySelector("#svg-container")
     val slider = input(tpe:="range", min:=0, max:=0).render
     val content = div.render
@@ -84,9 +42,6 @@ object AppTodo {
       items += str -> string
     }
 
-//    for (y <- 0 to 9; x <- 0 to 9)
-//      yield game.create((x, y, if (x==4&&y==4) 1 else if (x==4&&y==3) 2 else 0))
-
 //    transact {
 //      model.create((ThreadLocalRandom.current().nextInt().toString, "milk", false))
 //      model2.create((ThreadLocalRandom.current().nextInt().toString, "cheese", false))
@@ -94,43 +49,25 @@ object AppTodo {
 //      model.create((ThreadLocalRandom.current().nextInt().toString, "honey", false))
 //    }
 
-//    Network.pub(model.diffs, "todos")
+//    drx.Network.pub(model.diffs, "todos")
 //    val allOtherModels: Rx[(ClientID, Map[String, Task])] =
-//      Network.sub[Map[String, Task]](Map(), "todos")
+//      drx.Network.sub[Map[String, Task]](Map(), "todos")
 //        .scan(("", Map[String, Task]())){ (state, event) => (event._1, (state._2 ++ event._2) filter { _._2 != null }) }
+//    drx.Network.startHeartbeat()
 
-    //Network.publish(fullName)
-    //Network.subscribe[String]("", "fullname") observe {
-    //  case (_, valu) => fullName set valu
-    //}
-
-//    Network.startHeartbeat()
-
-    val todotext = model.aggregate
-      .map(it => it.values.count(!_.done.get))
-      .map(it => if (it == 0) "no" else "" + it)
-      .map(span(_))
-
-    val textlen = model.aggregate
-      .map { it => it.toList.map { case (k,task) => task.title.get.length }.sum }
-      .map(span(_))
+    val todotext = Todolist.text.map(span(_))
+    val textlen = Todolist.len.map(span(_))
 
     val todolist = div(
-      ul(model.diffs.dmapmap(rxTask(() => clearEmptyTodos(model)))),
-      div(model.aggregate.map(lst => if (lst.isEmpty) cls:="info" else cls:="hidden"), "All done! :)"))
-
-    //    val gamefield = div(style:="position:relative;height:320px", game dmapmap rxCell)
+      ul(Todolist.model.diffs.dmapmap(rxTask)),
+      div(Todolist.model.aggregate.map(lst => if (lst.isEmpty) cls:="info" else cls:="hidden"), "All done! :)"))
 
     val obj = div(
-//      rxClock(), br,
-//      rxFullName(Signal("So be it!"), fullName), br,
-//      "Hello ", fullName.map(span(_)), "!", br,
-
-      h1("DO TODOS! "/*, Network.localId*/),
-      rxCommand(makeNewTodo, placeholder:="enter new todo here"),
+      h1("DO TODOS! "/*, drx.Network.localId*/),
+      rxCommand(Todolist.addNewTodo, placeholder:="enter new todo here"),
 
 //      div(todolist),
-      div(/*Network.localId, */todolist, style:="display:inline-block; width:48%"),
+      div(/*drx.Network.localId, */todolist, style:="display:inline-block; width:48%"),
       div(style:="display:inline-block; width:4%"),
 //      div(todolist, style:="display:inline-block; width:48%"),
 //      div(style:="display:inline-block; width:2%"),
@@ -139,12 +76,77 @@ object AppTodo {
       p("There ", todotext, " left, " +
         "with a total description length of ", textlen, "."),
       rxButton(
-        () => clearDoneTodos(model), value:="remove all done todos",
-        model.aggregate.map(!_.exists(_._2.done.get)).map(toggleDisplayNone)),
+        Todolist.removeDoneTodos, value:="remove all done todos",
+        Todolist.model.aggregate.map(!_.exists(_._2.done.get)).map(toggleDisplayNone)),
+    )
+//    transact { // TODO why transact?
+    replaceChild(dom.document.body, dom.document.body.lastElementChild, obj.render)
+//    }
 
-      br, br, br,
+  }
 
-//      ximg.map(x => img(src:=x)),
+  val rxTask: Task => JsDom.TypedTag[dom.html.Element] =
+    Extras.lazyExtAttr { that =>
+      val changeCtr = Scan(0){ prev => that.title.get; that.done.get; prev + 1 }
+
+      val changed = Var[Boolean](false)
+      changed foreach (_ => Todolist.removeEmptyTodos())
+      val lastentries = Scan(List[String]()){ prev =>
+        changed.get; that.title.get :: prev.take(10) }
+
+      li(
+        Val(cls:=(if (that.done.get) "task done" else "task")),
+
+        rxCheckbox(that.done),
+
+        rxInput(that.title,
+          Val(color:=todoTextColor.get),
+          list:="datalist-"+that.hashCode(),
+          onchange:=( () => changed.transform(!_) )
+          ),
+
+        lastentries.map(it => datalist(
+          id:="datalist-"+that.hashCode(),
+          it.map(it => option(value:=it)))),
+
+        changeCtr.map(span(_))
+      )
+    }
+
+}
+
+//      rxClock(), br,
+
+
+
+//val fullName: Var[String] = Var("")
+//drx.Network.publish(fullName)
+//drx.Network.subscribe[String]("", "fullname") observe {
+//  case (_, valu) => fullName set valu
+//}
+//      rxFullName(Signal("So be it!"), fullName), br,
+//      "Hello ", fullName.map(span(_)), "!", br,
+
+
+
+//br, br, br,
+// snake game
+//  val clock = Var(0)
+//  class Cell(val x: Int, val y: Int, c: Int) extends VarOwner {
+//    val content: Var[Int] = mkVar(c, "c")
+//    override def toString: String = content.sample.toString
+//  }
+//  val game = new Store((xyc: (Int, Int, Int)) => new Cell(xyc._1, xyc._2, xyc._3), "game")
+//  def tick(): Unit = {}
+//  def rxCell(cell: Cell): JsDom.TypedTag[dom.html.Div] = {
+//    div(
+//      Signal(style:="position:absolute;left:"+(100*cell.x/10.0)+"%;top:"+(100*cell.y/10.0)+"%;width:9%;height:9%;background:rgba("+(cell.content.get*255.0/3)+",0,0,1)")
+//    )
+//  }
+//    val gamefield = div(style:="position:relative;height:320px", game dmapmap rxCell)
+
+//    for (y <- 0 to 9; x <- 0 to 9)
+//      yield game.create((x, y, if (x==4&&y==4) 1 else if (x==4&&y==3) 2 else 0))
 
 //      gamefield,
 
@@ -168,11 +170,17 @@ object AppTodo {
 //        }, "So be it!"),
 
 //      button("doit", onclick:={ () => drx.helper.printless() }),
-    )
-//    transact { // TODO why transact?
-    replaceChild(dom.document.body, dom.document.body.lastElementChild, obj.render)
-//    }
 
+
+
+
+
+
+
+
+
+//    val ximg = Var("")
+//      ximg.map(x => img(src:=x)),
 //    import scala.concurrent.ExecutionContext.Implicits.global
 //    import scala.concurrent.Future
 //    val dino = "http://dinoipsum.herokuapp.com/api/?format=text&paragraphs=3"
@@ -187,36 +195,3 @@ object AppTodo {
 //      val b = fetchText(dino)
 //      Future.sequence(Seq(a, b)) }
 //    .foreach(x => ximg set "data:image/jpeg;base64," + x(0))
-  }
-
-  val rxTask: (() => Unit) => Task => JsDom.TypedTag[dom.html.Element] =
-    onclick => Extras.lazyExtAttr { that =>
-      val changeCtr = Scan(0){ prev => that.title.get; that.done.get; prev + 1 }
-
-      val changed = Var[Boolean](false)
-      changed foreach (_ => onclick())
-      val lastentries = Scan(List[String]()){ prev =>
-        changed.get; that.title.get :: prev.take(10) }
-
-      li(
-  //      cls:="task",
-        Val(cls:=(if (that.done.get) "task done" else "task")),
-
-  //      span,
-        rxCheckbox(that.done),
-
-        rxInput(that.title,
-          Val(color:=todoTextColor.get),
-          list:="datalist-"+that.hashCode(),
-          onchange:=( () => changed.transform(!_) )
-          ),
-
-        lastentries.map(it => datalist(
-          id:="datalist-"+that.hashCode(),
-          it.map(it => option(value:=it)))),
-
-        changeCtr.map(span(_))
-      )
-    }
-
-}

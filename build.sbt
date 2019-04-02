@@ -20,7 +20,7 @@ lazy val server = (project in file("server"))
 
 lazy val todofx = (project in file("todofx"))
   .dependsOn(allJVM)
-  .settings( name := "todofx", cfg.common, cfg.javafx)
+  .settings( name := "todofx", cfg.common)
 
 lazy val all = crossProject(JSPlatform, JVMPlatform)
   .in(file("."))
@@ -31,7 +31,9 @@ lazy val all = crossProject(JSPlatform, JVMPlatform)
     jsEnv := new NodeJSEnv(NodeJSEnv.Config().withArgs(List("--expose-gc"))),
     scalaJSOptimizerOptions ~= { _.withDisableOptimizer(true) }
   )
-  .jvmSettings( mainClass in (Compile, run) := Some("main.Main"), cfg.common )
+  .jvmSettings( mainClass in (Compile, run) := Some("main.Main"), cfg.common,
+    cfg.javafx, cfg.akka,
+  )
 
 lazy val allJS = all.js
 lazy val allJVM = all.jvm

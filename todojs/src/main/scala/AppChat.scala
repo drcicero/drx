@@ -4,10 +4,11 @@
 
 import java.util.concurrent.ThreadLocalRandom
 
-import Network._
+import drx.Network._
 import RxDom._
 import RxDomHelper.{rxInput, _}
 import drx._
+import drx.graph.{Rx, Var}
 import org.scalajs.dom
 import scalatags.JsDom.all._
 import upickle.default.{ReadWriter, macroRW}
@@ -26,12 +27,6 @@ object AppChat {
   def makeNewMessage(value: String): Unit = localHistory.update {
     val rnd = ThreadLocalRandom.current().nextInt().toString
     Seq(rnd -> LocalMsg(rnd, new java.util.Date().getTime, Var(value)))
-  }
-
-  def getAllOthers[X](sig: Rx[X], id: String, startup: () => X)
-                     (implicit e: ReadWriter[X]): Rx[(ClientId, X)] = {
-    Network.offer(sig, startup, id)
-    Network.sub[X](sig.sample, id, true)
   }
 
   def main(): Unit = {

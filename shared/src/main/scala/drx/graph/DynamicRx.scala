@@ -1,62 +1,19 @@
-/** this package implements dynamic exprs (Scan, Val) */
-package drx
+package drx.graph
+
+import drx.internals.EmptyValExc
+import drx.{EmptyValExc, Instant, debug, internals, withInstant}
 
 import scala.collection.mutable
-import scala.util.{DynamicVariable, Failure, Success, Try}
-
-/** create a dynamic Scan. you may call _.get on other signals inside the
-  * closure to get and depend on their value. */
-object Scan {
-  def apply[X](init: X)(comb: X => X)(implicit n: Name): Rx[X] = {
-    val result = new DynamicRx[X](true, n.toString, Success(init)) with Rx[X] {
-      override protected[this] val formula: Try[X] => X = v => comb(v.get)
-    }
-    result.start()
-    result
-  }
-}
-
-/** create a dynamic signal. you may call _.get on other signals inside the
-  * closure to get and depend on their value. */
-object Val {
-  def apply[X](func: => X)(implicit n: Name): Rx[X] =
-    new DynamicRx[X](false, n.toString) with Rx[X] {
-      override protected[this] val formula: Try[X] => X = _ => func
-    }
-}
-
-//pipe iter(1, 2, 3, 4, 5)
-//     map(x => x+1)
-//     filter(x => x % 2)
-//     println
-//
-//do  x <- 1, 2, 3, 4, 5
-//    x <- x+1
-//    if x % 2
-//    println
-
-//trait ToRx[X] extends InstantRx_[X] {
-//  protected def levelup(newLevel: Int, tx: Instant): Unit
-////  private[drx] def getIns: Set[FromRx[_]] // freeze
-////  private[drx] def freeze(): Unit // freeze
-//}
-//trait OuterRx[X] extends ToRx[X] {
-//  private[drx] def isObserved: Boolean
-//  private[drx] def addIn(value: FromRx[_]): Unit
-//}
-//trait FromRx[X] {
-//  protected def leveldown(newLevel: Int, tx: Instant): Unit
-//  private[drx] def remOut(to: ToRx[_]): Unit
-//  //  private[drx] def isFrozen: Boolean // freeze
-//}
-
-// Getr --> Obsable
+import scala.util.Try
 
 /** A node in the directed graph of reactives. */
 abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
-                                              name: String,
-                                              init: Try[X] = internals.emptyValExc(),
-                                             ) extends Getr[X] {
+                                                       name: String,
+                                                       init: Try[X] = internals.emptyValExc(),
+                                                      ) extends Getr[X] {
+  //  // by giving each Node more memory, we can find memory leaks more easily
+  //  private[drx] val dummy = Array.tabulate(1000 * 1000)( i => i ) // TODO
+
   override def toString: String = name // to find sourcefile and line numbers again
 
   protected[this] val formula: Try[X] => X
@@ -81,15 +38,12 @@ abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
   private[drx] var debugEvaluating: Boolean = false // currently evaluating
   private[drx] var debugCtr: Int = 0 // how often evaluated
 
-  //  // by giving each Node more memory, we can find memory leaks more easily
-  //  private[drx] val dummy = Array.tabulate(1000 * 100)( i => i ) // TODO
-
   @inline private[drx] def getValue: X = withInstant { tx =>
-//    if (isFrozen) {// if we are frozen, we return our immutable value
-//      println("is frozen: " + this.id); return value.get }
+    //    if (isFrozen) {// if we are frozen, we return our immutable value
+    //      println("is frozen: " + this.id); return value.get }
 
     if (if (remember) !isObserved && !tx.clean.contains(this)
-        else value.isFailure && value.failed.get.isInstanceOf[EmptyValExc])
+    else value.isFailure && value.failed.get.isInstanceOf[EmptyValExc])
       tx.markRxShallow(this)
 
     // TODO sample should change levels, e.g. if outer==None we still need to setLevelLowerThan... Hm?
@@ -119,7 +73,7 @@ abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
 
   private[drx] def reeval(): Unit = {
     if (internals.DEBUGSTEP) {debug.evaluating.add(this)
-                              debug.writeToDisk(s"STEP $this := $value")}
+      debug.writeToDisk(s"STEP $this := $value")}
 
     // during evaluation of formula, the 'ins' will be filled with our dependencies.
     // then, we remove ourself from those, we do not depend on anymore
@@ -127,7 +81,7 @@ abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
     val newValue = internals.activeRx.withValue(Some(this)) { Try(formula(value)) }
     (tmpIn -- ins).foreach(_ remOut this)
 
-//    if (isObserved) runatleastonce = true
+    //    if (isObserved) runatleastonce = true
     //internals.activeRx.value.foreach { outer =>
     //  if (outer.getMode == Pushing) runatleastonce = true }
 
@@ -139,8 +93,8 @@ abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
     }
 
     if (internals.DEBUGSTEP) {println(f"$this%-20s := $newValue%-20s")
-                              debug.writeToDisk(s"STEP $this := $value")
-                              debug.evaluating.remove(this)}
+      debug.writeToDisk(s"STEP $this := $value")
+      debug.evaluating.remove(this)}
   }
 
   private def addOut(outer: DynamicRx[_]): Unit = {
@@ -188,62 +142,20 @@ abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
   }
 
   //  // you cannot trust ins if not run at least once
-//  private[drx] var runatleastonce: Boolean = false
-//  override protected def finalize(): Unit = println("fin " + this)
-//  // for proxyvars a pointer to yourself
-//  private[drx] def underlying: DynamicRx[X] = this
-//    private[drx] var freezer: Boolean = false
-//    override private[drx] def isFrozen: Boolean = {
-//      freezer |= isObserved && ins.isEmpty; freezer
-//    }
-//  private[drx] def freeze(): Unit = {
-//    formula = () => value.get
-//    ins.clear()
-//    runatleastonce = true
-//
-//    val tmp = Set() ++ outs; outs.clear()
-//    tmp.foreach { it => if (it.getIns.forall(_.isFrozen)) it.freeze() }
-//  }
+  //  private[drx] var runatleastonce: Boolean = false
+  //  override protected def finalize(): Unit = println("fin " + this)
+  //  // for proxyvars a pointer to yourself
+  //  private[drx] def underlying: DynamicRx[X] = this
+  //    private[drx] var freezer: Boolean = false
+  //    override private[drx] def isFrozen: Boolean = {
+  //      freezer |= isObserved && ins.isEmpty; freezer
+  //    }
+  //  private[drx] def freeze(): Unit = {
+  //    formula = () => value.get
+  //    ins.clear()
+  //    runatleastonce = true
+  //
+  //    val tmp = Set() ++ outs; outs.clear()
+  //    tmp.foreach { it => if (it.getIns.forall(_.isFrozen)) it.freeze() }
+  //  }
 }
-
-class EmptyValExc(cause: Throwable) extends Throwable(cause)
-
-private object internals {
-
-  @inline def emptyValExc[X](e:Throwable = null): Try[X] = Failure {
-    val result = new EmptyValExc(e)
-    val index: Int = result.getStackTrace.lastIndexWhere(x =>
-      x.getClassName.startsWith("Rendering") || x.getClassName.startsWith("drx.")
-    )
-    result.setStackTrace(result.getStackTrace.slice(index + 1, index + 2))
-    result
-  }
-
-  // there are two kinds of strategies to handle dynamic edges
-  val withRetries = false // true = old variant, false = cooler variant
-  // TODO: NEW VARIANT: COUNT INCOMING
-
-  val activeRx: DynamicVariable[Option[DynamicRx[_]]] = new DynamicVariable(None)
-
-//  var uniqueCtr = 0
-//  def count: Int = { uniqueCtr += 1; uniqueCtr }
-  val DEBUGSTEP = false
-
-}
-
-//  val strongEventsources: mutable.Set[InternalRx[_]] = mutable.Set()
-//  val dummyOwner = new VarOwner {}
-//  def checksafety(me: InternalRx[_], owner: VarLike): Unit = {
-//    val ancestry: mutable.Set[InternalRx[_]] = mutable.Set()
-//    def transitiveIns(it: InternalRx[_]): Unit = {
-//      if (ancestry.add(it)) it.getIns.foreach(transitiveIns)
-//    }
-//    transitiveIns(me)
-//    val vars = ancestry.collect { case it: EventSource[_] => it }
-//    if (vars.size > 1 && !vars.subsetOf(owner.getEventsources))
-//      throw new RuntimeException("You are creating a fold over multiple variables." +
-//        " The fold will live until all incoming variables are dead.." +
-//        " You must specify the VarOwner of all Variables that influence this fold." +
-//        " for example like: a = owner.mkVar(); b = owner.mkVar() _.fold(0, owner)(_+_) ." +
-//        " The fold will be then be collected when this VarOwner is collected.")
-//  }
