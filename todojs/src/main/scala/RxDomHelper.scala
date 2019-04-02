@@ -1,10 +1,9 @@
-import drx.{Extras, Rx, Val, Var}
 import org.scalajs.dom
 import org.scalajs.dom.html.{Div, Input}
 import scalatags.JsDom.TypedTag
 import scalatags.JsDom.all._
 import RxDom._
-import drx.graph.{Rx, Var}
+import drx.graph.{Rx, Val, Var}
 import org.scalajs.dom.Element
 import scalatags.generic.StylePair
 

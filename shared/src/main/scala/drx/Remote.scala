@@ -4,7 +4,7 @@ import java.util.concurrent.ThreadLocalRandom
 
 import concreteplatform.executionContext
 import drx.Network.ClientId
-import drx.graph.{Obs, Rx, SeqVar, Var}
+import drx.graph.{Obs, Rx, VarSeq, Var}
 import upickle.default
 import upickle.default.{ReadWriter, macroRW, read, readwriter, write}
 
@@ -38,7 +38,7 @@ object Network {
   // map remote to local var id, and otherwise
   private val offeredRx: mutable.Map[String, Offer[_]] = mutable.Map()
   private val publishedRx: mutable.Map[(Rx[_], ClientId), Obs[_]] = mutable.Map()
-  private val outbox = SeqVar[(String, Msgi)]()
+  private val outbox = VarSeq[(String, Msgi)]()
 
   private val subscribedRx: mutable.Map[(ClientId, String), Sub[_]] = mutable.Map()
   private val subscribedRxFromAll: mutable.Map[String, SubAll[_]] = mutable.Map()
@@ -118,13 +118,13 @@ object Network {
     pubConf.value foreach { case (to, sync) =>
       if (!publishedRx.contains((offer.rx, to))) {
         enqueueChange(offer, to, sync, offer.startup())
-        val outboxObs = offer.rx
+        val remoteObs = offer.rx
           .map /* map vs foreach? */ { value =>
             pubConf.withValue(Some((to, sync))) {
               enqueueChange(offer, to, sync, value) }}
           .mkForeach(_ => ())
-        publishedRx((offer.rx, to)) = outboxObs
-        drx.withInstant(_.runLater(() => outboxObs.start()))
+        publishedRx((offer.rx, to)) = remoteObs
+        drx.withInstant(_.runLater(() => remoteObs.start()))
       }
     }
   }

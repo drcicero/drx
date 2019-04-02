@@ -37,7 +37,7 @@ object atomic {
 private class atomic {
   // drx-interface //////////////////////////////////////////////////
 
-  type InstantRx = graph.DynamicRx[_]
+  type InstantRx = graph.RxDynamic[_]
 
   def markSource(it: InstantRx): Unit = if (!dirtySources.add(it))
     throw new RuntimeException("variable "+it+" can only be set once per transaction.")

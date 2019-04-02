@@ -1,9 +1,9 @@
 package drx
 
-import drx.graph.{Rx, SeqVar, Var}
+import drx.graph.{Rx, VarSeq, Var}
 
 //sealed class ApplySeqFold[X](init: X)(implicit n: Name) {
-//  val diffs: SeqVar[X => X] = new SeqVar[X => X]()(n)
+//  val diffs: SeqVar[X => X] = new VarSeq[X => X]()(n)
 //  val aggregate: Rx[X] = diffs
 //    .scan(init) { (x, ff) => ff.foldLeft(x) { (y, f) => f(y) } } // TODO see comment below
 //  def update(delta: Seq[X => X]): Unit = diffs.set(delta)
@@ -21,7 +21,7 @@ sealed class ApplyFold[X](init: X)(implicit n: Name) {
 }
 
 sealed class IncMap[X](implicit n: Name) {
-  val diffs: SeqVar[(String, X)] = new SeqVar[(String, X)]()(n)
+  val diffs: VarSeq[(String, X)] = new VarSeq[(String, X)]()(n)
   val aggregate: Rx[Map[String, X]] = diffs
     .scan(Map[String, X]()) { (x, y) =>
       (x ++ y) filter { _._2 != null }

@@ -5,11 +5,12 @@ import javafx.stage.Stage
 import drx._
 import main.{Task, Todolist}
 import RxFxHelper._
-import drx.graph.{Rx, Var}
+import drx.graph.{Rx, Val, Var}
 
 class AppTodo extends Application {
 
   override def start(primaryStage: Stage): Unit = {
+    concreteplatform.storePrimaryStage(primaryStage)
     concreteplatform.fpost("test", "test")
 
     import RxFx.SignalToNode

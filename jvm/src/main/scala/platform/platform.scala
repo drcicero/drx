@@ -13,6 +13,9 @@ import drx.{AbstractWeakMap, AbstractWeakSet, ScalaWeakMap, abstractplatform}
 import javafx.util.Duration
 import javafx.animation.{KeyFrame, Timeline}
 import javafx.application.Platform
+import javafx.embed.swing.SwingFXUtils
+import javafx.stage.Stage
+import javax.imageio.ImageIO
 
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
@@ -39,20 +42,41 @@ trait platform extends abstractplatform {
   //override def WeakSetOrNot[K, V](): AbstractWeakSet[K, V] = new drx.AllSet()
   //override def WeakSetOrNot[K, V](): AbstractWeakSet[K, V] = new drx.NoSet()
 
+  override val measurements: mutable.ListBuffer[Double] = mutable.ListBuffer()
+  override def startMeasure(): Unit = {}
+  override def endMeasure(): Unit =   {}
 
   // remove old outputs
   Files.createDirectories(Paths.get("debuggraphs"))
   new File("debuggraphs")
-    .listFiles(f => f.isFile && (f.getName.endsWith(".svg") || f.getName.endsWith(".dot")))
+    .listFiles(f => f.isFile && (
+      f.getName.endsWith(".svg") || f.getName.endsWith(".dot") ||
+      f.getName.endsWith(".png") || f.getName.endsWith(".txt") ))
     .foreach(f => f.delete())
   var j = ThreadLocalRandom.current().nextInt().toHexString.slice(0, 8)
   var i = 0
   override def writeToDisk(desc: String): Unit = {
     i += 1
-    Files.write(Paths.get(s"debuggraphs/graph-$j-$i.dot"), drx.debug.stringit(desc=desc).getBytes())
+
+//    val pid = ProcessHandle.current.pid
+//    val histo = Runtime.getRuntime.exec("jmap -histo:live " + pid)
+//    Files.write(Paths.get(s"debuggraphs/histo-$j-$i.txt"), histo.getInputStream.readAllBytes())
+
+    // save graph
+    val graphvizStr = drx.debug.stringit(desc=desc)
+    Files.write(Paths.get(s"debuggraphs/graph-$j-$i.dot"), graphvizStr.getBytes())
+
+    // save screenshot
+    if (stage != null && stage.getScene != null) {
+      val img = stage.getScene.snapshot(null)
+      val bufimg = SwingFXUtils.fromFXImage(img, null)
+      val file = Paths.get(s"debuggraphs/screenshot-$j-$i.png").toFile
+      ImageIO.write(bufimg, "png", file)
+    }
   }
 
-  override val measurements: mutable.ListBuffer[Double] = mutable.ListBuffer()
-  override def startMeasure(): Unit = {}
-  override def endMeasure(): Unit =   {}
+  private var stage: Stage = _
+  def storePrimaryStage(primaryStage: Stage) {
+    stage = primaryStage
+  }
 }

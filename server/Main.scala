@@ -20,6 +20,10 @@ import scala.io.StdIn
 // thanks to https://github.com/lihaoyi/workbench-example-app/tree/autowire-akka-http
 
 object Server {
+  // ~5 min maximum for browser?
+  private val LONGPOLL_DURATION_MIN = 4
+
+  var active = mutable.Map[String, Long]()
   var log = mutable.Map[String, mutable.ListBuffer[String]]()
   var waiting = mutable.Map[String, Promise[String]]()
 
@@ -50,21 +54,22 @@ object Server {
               println("} news")
               val news = log.getOrElseUpdate(name, mutable.ListBuffer()).toSeq; log(name).clear()
               if (news.nonEmpty) {
-                promise.success(write((log.keys.toSet, news)))
+                promise.success(mkResponse(news))
                 waiting.remove(name)
               }
             }
           }
           complete("")
         } } ~
-        // 5 min maximum for browser?
-        withRequestTimeout(Duration(4, TimeUnit.MINUTES)) { path("pull" / Segment) { name =>
+        withRequestTimeout(Duration(LONGPOLL_DURATION_MIN, TimeUnit.MINUTES)) { path("pull" / Segment) { name =>
           this.synchronized {
+            active(name) = System.currentTimeMillis() // still alive
+
             val newConnection = !log.contains(name)
             val news = log.getOrElseUpdate(name, mutable.ListBuffer()).toSeq; log(name).clear()
             if (newConnection || news.nonEmpty) {
               println("immediate {}")
-              complete(write((log.keys.toSet, news)))
+              complete(mkResponse(news))
             } else {
               println("waiting {")
               val promise = Promise[String]()
@@ -74,7 +79,7 @@ object Server {
                   if (!waiting(name).isCompleted) {
                     println("} timeout")
                     val news = log.getOrElseUpdate(name, mutable.ListBuffer()).toSeq; log(name).clear()
-                    write((log.keys.toSet, news))
+                    mkResponse(news)
                   } else ""
                 })
               } {
@@ -94,5 +99,11 @@ object Server {
     val x = StdIn.readLine()
     println(x)
     system.terminate()
+  }
+
+  private def mkResponse(news: Seq[String]) = {
+    val LONGPOLL_TOLERANCE_MIN = 1 // let server forget clients after 1min pause (~ 4+1 == 5min)
+    val stillActive = System.currentTimeMillis() - 60 * 1000 * (LONGPOLL_DURATION_MIN + LONGPOLL_TOLERANCE_MIN)
+    write((active.filter(x => x._2 > stillActive).keys, news))
   }
 }

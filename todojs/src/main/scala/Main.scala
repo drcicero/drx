@@ -1,7 +1,7 @@
 import RxDom.insertChild
+import drx.concreteplatform
 import scalatags.JsDom.all._
 import org.scalajs.dom
-import platform.platform
 
 /** Created by david on 05.05.17. */
 
@@ -11,7 +11,7 @@ object Main {
 
   def main(args: Array[String]): Unit = {
     dom.document.body.appendChild(
-      button("measurements", onclick:={ () => dom.window.alert(""+platform.measurements) }).render
+      button("measurements", onclick:={ () => dom.window.alert(""+concreteplatform.measurements) }).render
     )
     insertChild(dom.document.body,
       div(

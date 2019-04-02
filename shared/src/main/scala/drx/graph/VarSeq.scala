@@ -5,13 +5,13 @@ import drx.{Name, withInstant}
 import scala.collection.mutable
 import scala.util.{Success, Try}
 
-object SeqVar {
-  def apply[X]()(implicit n: Name): SeqVar[X] =
-    new SeqVar()(n)
+object VarSeq {
+  def apply[X]()(implicit n: Name): VarSeq[X] =
+    new VarSeq()(n)
 }
 
-sealed class SeqVar[X] private[drx](protected val buffer: mutable.Buffer[X] = mutable.Buffer[X]())(implicit n: Name)
-  extends DynamicRx[Seq[X]](
+sealed class VarSeq[X] private[drx](protected val buffer: mutable.Buffer[X] = mutable.Buffer[X]())(implicit n: Name)
+  extends RxDynamic[Seq[X]](
     true, // actually false?
     n.toString,
     Success(Seq() ++ buffer)) with Rx[Seq[X]] {

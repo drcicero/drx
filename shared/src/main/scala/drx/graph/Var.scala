@@ -19,7 +19,7 @@ object Var {
 // Distributed Programming: Building Functional Refuges inside Imperative Chaos
 
 sealed class Var[X] private[drx](protected var buffer: Try[X])(implicit n: Name)
-  extends DynamicRx[X](true, n.toString, buffer) with Rx[X] {
+  extends RxDynamic[X](true, n.toString, buffer) with Rx[X] {
   // TODO watch that ad-hoc classes do not capture this of outer,
   //      bc Proxys finalize would no longer work
 

@@ -1,6 +1,6 @@
 package drx
 
-import drx.graph.{DynamicRx, Obs}
+import drx.graph.{RxDynamic, Obs}
 import drx.internals.EmptyValExc
 
 import scala.collection.mutable
@@ -8,7 +8,7 @@ import scala.util.{Failure, Success}
 
 /** Created by david on 10.06.17. */
 object debug {
-  val evaluating: mutable.Set[DynamicRx[_]] = mutable.Set()
+  val evaluating: mutable.Set[RxDynamic[_]] = mutable.Set()
 
   def ellipsis(tmp: String): String =
     if (tmp.length < 10) tmp
@@ -17,7 +17,7 @@ object debug {
   def serialize(x: Any): String = x match {
     case Failure(e) if e.isInstanceOf[EmptyValExc] => "/"
     case Success(y) => serialize(y)
-    case x: DynamicRx[_] => x.toString
+    case x: RxDynamic[_] => x.toString
     // case x: Node => x.outerHTML.replace('"', "'")
     case x: mutable.Map[_, _] =>
       "{" + x.map {
@@ -28,14 +28,14 @@ object debug {
     case _ => ("" + x).replaceAllLiterally("\"", "\\\"")
   }
 
-  def getthem(rx: DynamicRx[_], acc: mutable.Set[DynamicRx[_]]): Unit = if (!acc.contains(rx)) {
+  def getthem(rx: RxDynamic[_], acc: mutable.Set[RxDynamic[_]]): Unit = if (!acc.contains(rx)) {
     acc += rx
     rx.ins.foreach { y => getthem(y, acc) }
     rx.outs.foreach { y => getthem(y, acc) }
   }
 
-  def transitivehull(xs: Set[DynamicRx[_]]): Set[DynamicRx[_]] = {
-    val set = mutable.Set[DynamicRx[_]]()
+  def transitivehull(xs: Set[RxDynamic[_]]): Set[RxDynamic[_]] = {
+    val set = mutable.Set[RxDynamic[_]]()
     xs.foreach(getthem(_, set))
     set.toSet
   }
@@ -48,7 +48,7 @@ object debug {
 
   def stringit(root: Set[Obs[_]] = Set(), desc: String = ""): String = {
 
-    def color(rx: DynamicRx[_]): String =
+    def color(rx: RxDynamic[_]): String =
       "color=" + (
         if (rx.isObserved) "black" // "\"#aadd00\""
         else "white"
@@ -67,14 +67,14 @@ object debug {
     //        case _          => "shape=diamond"
     //      })
 
-    def form(rx: DynamicRx[_]): String = if (rx.toString.contains("_")) rx.toString.split("_", 2)(1) else rx.toString // rx.hashCode().toString
-    def str(rx: DynamicRx[_]): String = '"' + rx.toString + "_" + rx.level + '"'
+    def form(rx: RxDynamic[_]): String = if (rx.toString.contains("_")) rx.toString.split("_", 2)(1) else rx.toString // rx.hashCode().toString
+    def str(rx: RxDynamic[_]): String = '"' + rx.toString + "_" + rx.level + '"'
     //    def str(rx: InternalRx[_]): String = rx.hashCode().toString
 
-    def mapIt(kv: (String, collection.immutable.Set[DynamicRx[_]])) = {
+    def mapIt(kv: (String, collection.immutable.Set[RxDynamic[_]])) = {
       val (k, l) = kv
 
-      def intime(f: atomic => mutable.Set[DynamicRx[_]])(it: DynamicRx[_]) =
+      def intime(f: atomic => mutable.Set[RxDynamic[_]])(it: RxDynamic[_]) =
         withInstant.activeInstant.value.exists(f(_) contains it)
 
       def count =
@@ -109,7 +109,7 @@ object debug {
       ))
     }
 
-    val roots = root.collect { case x: DynamicRx[_] => x }
+    val roots = root.collect { case x: RxDynamic[_] => x }
     val sigs = transitivehull(roots ++ debugRxs.keys)
     val gsigs = sigs.groupBy(str).map(mapIt)
 
@@ -185,12 +185,13 @@ object debug {
 
   //////////////////////////////////////////////////////////////////////////////
 
-  private[drx] val debugRxs = concreteplatform.WeakSetOrNot[DynamicRx[_], Unit]()
+  private[drx] val debugRxs = concreteplatform.WeakSetOrNot[RxDynamic[_], Unit]()
 
   var hook: String => Unit = { _ => }
 
   def writeToDisk(str: String): Unit = {
-    val heap = " heap{ " + concreteplatform.heapSize() + " }"
+    concreteplatform.gc()
+    val heap = " (" + drx.debug.debugRxs.keys.size + " nodes)"
     hook(str + heap)
     concreteplatform.writeToDisk(str + heap)
   }

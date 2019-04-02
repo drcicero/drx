@@ -1,13 +1,13 @@
 package drx.graph
 
 import drx.internals.EmptyValExc
-import drx.{EmptyValExc, Instant, debug, internals, withInstant}
+import drx.{atomic, debug, internals, withInstant}
 
 import scala.collection.mutable
 import scala.util.Try
 
 /** A node in the directed graph of reactives. */
-abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
+abstract private[drx] class RxDynamic[+X] private[drx](remember: Boolean,
                                                        name: String,
                                                        init: Try[X] = internals.emptyValExc(),
                                                       ) extends Getr[X] {
@@ -22,8 +22,8 @@ abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
   protected[this] var value: Try[X] = init // contains value or exceptions calculated by formula during turns
   private[drx] def getIt: Try[X] = value
 
-  private[drx] val outs: mutable.Set[DynamicRx[_]] = mutable.Set() // for propagation, push to these rx
-  private[drx] val ins: mutable.Set[DynamicRx[_]] = mutable.Set() // for dynamic edges, remember incomings
+  private[drx] val outs: mutable.Set[RxDynamic[_]] = mutable.Set() // for propagation, push to these rx
+  private[drx] val ins: mutable.Set[RxDynamic[_]] = mutable.Set() // for dynamic edges, remember incomings
   private[drx] var level: Int = 0 // for glitchfreedom, always higher than the all incomings level, and lower than all outgoing levels
 
   private[drx] def isObserved: Boolean = outs.nonEmpty || forceObserved
@@ -97,11 +97,11 @@ abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
       debug.evaluating.remove(this)}
   }
 
-  private def addOut(outer: DynamicRx[_]): Unit = {
+  private def addOut(outer: RxDynamic[_]): Unit = {
     this.outs += outer // for propagation / consistency,              remember outgoing rx
     outer.addIn(this) // for dynamic edge removal / time management, remember incoming rx
   }
-  private[drx] def remOut(to: DynamicRx[_]): Unit = {
+  private[drx] def remOut(to: RxDynamic[_]): Unit = {
     //if (!outs.contains(to)) throw new RuntimeException(
     //  s"redundant broke from $id to ${to.id}") else
     //println(s"  broke from $id to ${to.id}")
@@ -109,19 +109,19 @@ abstract private[drx] class DynamicRx[+X] private[drx](remember: Boolean,
     // if we just lost our last outgoing, then we deactivate ourself, too.
     if (!isObserved) ins.foreach(_ remOut this)
   }
-  private[drx] def addIn(value: DynamicRx[_]): Unit = ins += value
+  private[drx] def addIn(value: RxDynamic[_]): Unit = ins += value
 
-  private def setLevelLowerThan(to: DynamicRx[_], tx: Instant): Unit = {
+  private def setLevelLowerThan(to: RxDynamic[_], tx: atomic): Unit = {
     /** there are two kinds of strategies to handle this situation,
       * you can choose between over the global variable [[internals.withRetries]]. */
     if (internals.withRetries) to.levelup(this.level + 1, tx)
     else                     this.leveldown(to.level - 1, tx)
   }
-  protected def leveldown(newLevel: Int, tx: Instant): Unit = if (newLevel < this.level) {
+  protected def leveldown(newLevel: Int, tx: atomic): Unit = if (newLevel < this.level) {
     level = newLevel; tx.resubmit(this) // resort on lvl change
     ins.foreach(_.leveldown(newLevel - 1, tx))
   }
-  protected def levelup(newLevel: Int, tx: Instant): Unit = if (newLevel > level) {
+  protected def levelup(newLevel: Int, tx: atomic): Unit = if (newLevel > level) {
     level = newLevel; tx.resubmit(this) // re-sort on lvl change
     outs.foreach(_.levelup(newLevel + 1, tx))
   }

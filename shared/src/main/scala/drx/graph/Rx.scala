@@ -23,7 +23,7 @@ trait Rx[+X] { this: Getr[X] =>
 
   @inline def mkScan[Y](init: Y)(comb: (Y, X) => Y)(implicit n: Name): Rx[Y] = {
     val that = this
-    new DynamicRx[Y](true, n.toString, Success(init)) with Rx[Y] {
+    new RxDynamic[Y](true, n.toString, Success(init)) with Rx[Y] {
       override protected[this] val formula: Try[Y] => Y = {x => comb(x.get, that.get)}
     }
   }
@@ -32,7 +32,7 @@ trait Rx[+X] { this: Getr[X] =>
     * to create the next value. fails inside a signal. */
   @inline def scan[Y](init: Y)(comb: (Y, X) => Y)(implicit n: Name): Rx[Y] = {
     val that = this
-    val result = new DynamicRx[Y](true, n.toString, Success(init)) with Rx[Y] {
+    val result = new RxDynamic[Y](true, n.toString, Success(init)) with Rx[Y] {
       override protected[this] val formula: Try[Y] => Y = {x => comb(x.get, that.get)}
     }
     result.start()

@@ -1,6 +1,5 @@
 import RxFx.MutatingValue
 import drx.graph.{Obs, Rx, Var}
-import drx.{Obs, Var}
 import javafx.geometry.Insets
 import javafx.scene.{Node, Parent, Scene}
 import javafx.scene.control.{Button, CheckBox, Label, ScrollPane, TextField}

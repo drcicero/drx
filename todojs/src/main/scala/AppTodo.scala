@@ -2,7 +2,7 @@
 
 // TODO hm, folds must be toplevel or inside Extra.lazyExtAttr blocks...?
 
-import drx.graph.Var
+import drx.graph.{Scan, Val, Var}
 import main.{Task, Todolist}
 
 import scala.collection.mutable
@@ -37,7 +37,7 @@ object AppTodo {
     }
     debug.hook = {str =>
       val string = drx.debug.stringit(collectChildSinks(dom.document.body))
-      val idx = slider.max.toInt + 1
+      // val idx = slider.max.toInt + 1
       slider.max = items.size.toString
       items += str -> string
     }

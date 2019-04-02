@@ -8,7 +8,7 @@ import drx.Network._
 import RxDom._
 import RxDomHelper.{rxInput, _}
 import drx._
-import drx.graph.{Rx, Var}
+import drx.graph.{Rx, Val, Var}
 import org.scalajs.dom
 import scalatags.JsDom.all._
 import upickle.default.{ReadWriter, macroRW}

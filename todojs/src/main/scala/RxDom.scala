@@ -1,13 +1,12 @@
+import drx.concreteplatform
 import drx.graph.{Obs, Rx}
-import drx.{Obs, Rx, internals}
 import org.scalajs.dom
 import org.scalajs.dom.Element
-import platform.platform.WeakMap
 import scalatags.JsDom.TypedTag
 import scalatags.JsDom.all._
 import scalatags.generic.{AttrPair, StylePair}
 
-import scala.collection.{GenTraversableOnce, mutable}
+import scala.collection.mutable
 import scala.language.implicitConversions
 import scala.scalajs.js
 
@@ -113,7 +112,7 @@ object RxDom {
 //  }
 
   private val DATA_IS_REACTIVE = "data-is-reactive"
-  private val sinkMap = new WeakMap[dom.Node, mutable.Set[Obs[_]]]()
+  private val sinkMap = concreteplatform.WeakMap[dom.Node, mutable.Set[Obs[_]]]()
 
   private def addSink(it: dom.Element, obs: Obs[_]): Unit = {
     val sinks = sinkMap.get(it).getOrElse {

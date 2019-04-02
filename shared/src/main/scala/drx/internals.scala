@@ -1,7 +1,7 @@
 /** this package implements dynamic exprs (Scan, Val) */
 package drx
 
-import drx.graph.{DynamicRx, Rx}
+import drx.graph.{RxDynamic, Rx}
 
 import scala.util.{DynamicVariable, Failure, Success, Try}
 
@@ -50,7 +50,7 @@ private object internals {
   val withRetries = false // true = old variant, false = cooler variant
   // TODO: NEW VARIANT: COUNT INCOMING
 
-  val activeRx: DynamicVariable[Option[DynamicRx[_]]] = new DynamicVariable(None)
+  val activeRx: DynamicVariable[Option[RxDynamic[_]]] = new DynamicVariable(None)
 
 //  var uniqueCtr = 0
 //  def count: Int = { uniqueCtr += 1; uniqueCtr }
