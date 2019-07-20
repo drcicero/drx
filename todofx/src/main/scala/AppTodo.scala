@@ -39,34 +39,40 @@ class AppTodo extends Application {
       gcbuttext set concreteplatform.heapSize().toString
     })
 
-    val allOtherModels: Rx[Map[String, Task]] =
-       drx.Network.getAllOthers(Todolist.model.diffs, "todos", () => Todolist.model.aggregate.sample.toSeq)
-         .filter(x => x._1 != drx.Network.thisClient)
-         .scan(Map[String, Task]()){ (state, event) =>
-           println((state, event))
-           (state ++ event._2) filter { _._2 != null } }
-    drx.Network.startHeartbeat()
+    Todolist.model.diffs.foreach(x => println("heeeeelo" + x))
+//    val allOtherModels: Rx[Map[String, Task]] =
+//       drx.Remote.sharedAs(Todolist.model.diffs, "todos", () => Todolist.model.sampleAsDelta)
+//         //.filter(x => x._1 != drx.Network.thisClient)
+//         .scan(Map[String, Task]()){ (state, event) =>
+//           println("holaaaaa" + (state, event))
+//           IncMap.add(state, event._2) }
+//    drx.Remote.startHeartbeat()
 
     val box = new VBox(10)
     box.getChildren.addAll(Seq[Node](
-      gcbut,
+//      gcbut,
 
       label("DO TODOS!"),
       rxLabel(Val("There are " + Todolist.text.get + " todos left, " +
         "with a total description length of " + Todolist.len.get + ".")),
       textfield,
-      Val(
-        if (Todolist.model.aggregate.get.isEmpty)
-          label("All done! :)")
-        else
-          new VBox(10, Todolist.model.aggregate.get.values.map(dview).toList:_*)
-      ).drender,
-      Val(
-        if (allOtherModels.get.isEmpty)
-          label("All done! :)")
-        else
-          new VBox(10, allOtherModels.get.values.map(dview).toList:_*)
-      ).drender,
+
+      new HBox(50,
+        new VBox(Val(
+          if (Todolist.model.aggregate.get.isEmpty)
+            label("All done! :)")
+          else
+            new VBox(10, Todolist.model.aggregate.get.values.map(dview).toList:_*)
+        ).drender),
+
+//        new VBox(Val(
+//          if (allOtherModels.get.isEmpty)
+//            label("All done! :)")
+//          else
+//            new VBox(10, allOtherModels.get.values.map(dview).toList:_*)
+//        ).drender)
+      ),
+
       Val(
         if (Todolist.model.aggregate.get.isEmpty) label("")
         else rxButton(Val("remove all done todos"), Todolist.removeDoneTodos)).drender

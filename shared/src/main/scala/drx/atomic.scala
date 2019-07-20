@@ -9,7 +9,7 @@ import scala.util.DynamicVariable
   * instead of after each change. */
 object atomic {
   def apply[X](changer: => X): X = withInstant { _ => changer }
-  var waiting: mutable.Set[String] = mutable.Set()
+  var waitingFor: mutable.Set[String] = mutable.Set()
   private[drx] var postponedEffects = mutable.ListBuffer[() => Unit]()
 }
 
@@ -27,7 +27,6 @@ object atomic {
           tx.processChanges()
           tmp
         }
-        concreteplatform.endMeasure()
         tmp
     }
   }
@@ -71,28 +70,29 @@ private class atomic {
 
     // mark dirty Sources >=> propagate >=> debugWriteToDisk
     dirtySources.foreach(it => markRx(it))
-    debug.writeToDisk("DIRTY")
+    if (DEBUGLOG) debug.writeToDisk("DIRTY")
     dirtySources.clear()
 
     processLowerOrEqual(Int.MaxValue)
-    debug.writeToDisk("DONE")
+    if (DEBUGLOG) debug.writeToDisk("DONE")
 
     clean.foreach(_.cleanup())
     shouldPush.clear()
     clean.clear()
-    debug.writeToDisk("CLEAR")
+    if (DEBUGLOG) debug.writeToDisk("CLEAR")
 
     beforewait.foreach(_ ())
     beforewait.clear()
-    if (atomic.waiting.isEmpty) {
+    if (atomic.waitingFor.isEmpty) {
       log += s"eff ${effects.size} ${atomic.postponedEffects.size}; "
       atomic.postponedEffects.foreach(_ ())
       atomic.postponedEffects.clear()
       effects.foreach(_ ())
       effects.clear()
+      if (dirtySources.isEmpty) concreteplatform.endMeasure()
     } else {
       // TODO make a list of postponedEffects with ID and apply one by one
-      log += s"ppeff ${effects.size} ${atomic.postponedEffects.size}; ${atomic.waiting}"
+      log += s"ppeff ${effects.size} ${atomic.postponedEffects.size}; ${atomic.waitingFor}"
       atomic.postponedEffects ++= effects
       effects.clear()
     }

@@ -4,7 +4,7 @@
 
 import java.util.concurrent.ThreadLocalRandom
 
-import drx.Network._
+import drx.Remote._
 import RxDom._
 import RxDomHelper.{rxInput, _}
 import drx._
@@ -17,38 +17,37 @@ import scala.language.implicitConversions
 import scala.scalajs.js.Date
 
 object AppChat {
-  case class LocalMsg(id: String, timestamp: Long, content: Var[String])
-  case class Msg(id: String, timestamp: Long, content: Var[String], clientId: ClientId)
-  implicit def localRW: ReadWriter[LocalMsg] = macroRW
-  implicit def remoteRW: ReadWriter[Msg] = macroRW
+  case class Item(id: String, timestamp: Long, content: Var[String], clientId: ClientId)
+  implicit def itemRW: ReadWriter[Item] = macroRW
 
   val localnick: Var[String] = Var("")
-  val localHistory = new IncMap[LocalMsg]()
+  val localHistory = new IncMap[Item]()
   def makeNewMessage(value: String): Unit = localHistory.update {
     val rnd = ThreadLocalRandom.current().nextInt().toString
-    Seq(rnd -> LocalMsg(rnd, new java.util.Date().getTime, Var(value)))
+    Seq(rnd -> Some(Item(rnd, new java.util.Date().getTime, Var(value), Remote.thisClient)))
   }
 
-  def main(): Unit = {
+  def main(sync: Boolean): Unit = {
 
-    val dcommonHistory: Rx[Seq[(String, Msg)]] = getAllOthers(localHistory.diffs, "history", ()=>localHistory.aggregate.get.toSeq)
-//    val dcommonHistory: Rx[Seq[(String, Msg)]] = getAllOthers(localHistory.aggregate, "history", ()=>localHistory.aggregate.get)
-      .map { case (clientId, lmsg) =>
-        lmsg.toSeq.map{ case (x,y) => x -> Msg(y.id, y.timestamp, y.content, clientId) }}
-    val commonHistory: Rx[Map[String, Msg]] = dcommonHistory
-      .scan(Map[String, Msg]()){ case (state, event) =>
-        (state ++ event) filter { _._2 != null }
-      }
+    val dcommonHistory: Rx[Seq[(String, Option[Item])]] =
+      sharedAs(localHistory.diffs, "history", localHistory.sampleAsDelta _, sync=sync)
+      .map { case (clientId, lmsg) => lmsg}
+//    val dcommonHistory: Rx[Seq[(String, Option[Item])]] =
+//      sharedAs(localHistory.aggregate, "history", ()=>localHistory.aggregate.get)
+//      .map { case (clientId, lmsg) => lmsg }.toSeq
+//    val commonHistory: Rx[Map[String, Item]] = dcommonHistory
+//        .scan(Map[String, Item]())(IncMap.add[Item])
 
-    val nicks = getAllOthers(localnick, "nick", ()=>localnick.get).scan(Map[ClientId, String]())(
-      (state, evt) => if (evt._2 != "") state + evt else state)
+    val nicks = sharedAs(localnick, "nick", ()=>localnick.get, sync=sync)
+      .scan(Map[ClientId, String]())(
+        (state, evt) => if (evt._2 != "") state + evt else state)
 
-    Network.startHeartbeat()
+    Remote.startHeartbeat()
 
     val obj = div(
-      h1("CHAT"),
-      rxInput(localnick, Val(placeholder:=Network.thisClient)),
-      div(dcommonHistory.dmapmap{ msg =>
+      h1("CHAT " + (if (sync) "SYNC" else "ASYNC")),
+      rxInput(localnick, Val(placeholder:=Remote.thisClient)),
+      div(dcommonHistory.dmapmap { msg =>
         if (dom.window.innerHeight + dom.window.pageYOffset + 10 > dom.document.documentElement.scrollHeight)
           scala.scalajs.js.timers.setTimeout(1) (dom.document.body.lastElementChild.lastElementChild.scrollIntoView())
 

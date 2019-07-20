@@ -7,7 +7,7 @@ import drx.graph.{Rx, Var}
 import drx.IncMap
 
 case class Task(title: Var[String], done: Var[Boolean]) {
-  val folded: Rx[Int] = title.map(_+1).scan(0)((state, event) => state + 1)
+  val folded: Rx[Int] = title.map(_=>1) // .scan(0)((state, event) => state + 1) // TODO
 }
 
 object Task {
@@ -17,7 +17,7 @@ object Task {
     Task(title, desc)
   }
   import upickle.default._
-  import drx.Network.varRW
+  import drx.Remote.varRW
   implicit def rw: ReadWriter[Task] = macroRW
 }
 
@@ -36,6 +36,6 @@ object Todolist {
   def addNewTodo(x: String): Unit = {
     val y = Task.mk(x)
     val rnd = ThreadLocalRandom.current().nextLong().toHexString
-    model.update(Seq(rnd -> y))
+    model.update(Seq(rnd -> Some(y)))
   }
 }

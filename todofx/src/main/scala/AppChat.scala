@@ -24,7 +24,7 @@
 //    Seq(rnd -> LocalMsg(rnd, new java.util.Date().getTime, Var(value)))
 //  }
 //
-//  def getAllOthers[X](sig: Rx[X], id: String, startup: () => X)
+//  def sharedAs[X](sig: Rx[X], id: String, startup: () => X)
 //                     (implicit e: ReadWriter[X]): Rx[(ClientId, X)] = {
 //    Network.offer(sig, startup, id)
 //    Network.sub[X](sig.sample, id, false)
@@ -32,8 +32,8 @@
 //
 //  def start(): Unit = {
 //
-//    val dcommonHistory: Rx[Seq[(String, Msg)]] = getAllOthers(localHistory.diffs, "history", ()=>localHistory.aggregate.get.toSeq)
-//      //    val dcommonHistory: Rx[Seq[(String, Msg)]] = getAllOthers(localHistory.aggregate, "history", ()=>localHistory.aggregate.get)
+//    val dcommonHistory: Rx[Seq[(String, Msg)]] = sharedAs(localHistory.diffs, "history", ()=>localHistory.aggregate.get.toSeq)
+//      //    val dcommonHistory: Rx[Seq[(String, Msg)]] = sharedAs(localHistory.aggregate, "history", ()=>localHistory.aggregate.get)
 //      .map { case (clientId, lmsg) =>
 //      lmsg.toSeq.map{ case (x,y) => x -> Msg(y.id, y.timestamp, y.content, clientId) }}
 //    val commonHistory: Rx[Map[String, Msg]] = dcommonHistory
@@ -41,7 +41,7 @@
 //        (state ++ event) filter { _._2 != null }
 //      }
 //
-//    val nicks = getAllOthers(localnick, "nick", ()=>localnick.get).scan(Map[ClientId, String]())(
+//    val nicks = sharedAs(localnick, "nick", ()=>localnick.get).scan(Map[ClientId, String]())(
 //      (state, evt) => if (evt._2 != "") state + evt else state)
 //
 //    Network.startHeartbeat()

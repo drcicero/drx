@@ -1,6 +1,8 @@
 package drx
 
-import drx.graph.{Rx, VarSeq, Var}
+import drx.graph.{Rx, Var, VarSeq}
+
+import scala.collection.immutable
 
 //sealed class ApplySeqFold[X](init: X)(implicit n: Name) {
 //  val diffs: SeqVar[X => X] = new VarSeq[X => X]()(n)
@@ -21,12 +23,15 @@ sealed class ApplyFold[X](init: X)(implicit n: Name) {
 }
 
 sealed class IncMap[X](implicit n: Name) {
-  val diffs: VarSeq[(String, X)] = new VarSeq[(String, X)]()(n)
-  val aggregate: Rx[Map[String, X]] = diffs
-    .scan(Map[String, X]()) { (x, y) =>
-      (x ++ y) filter { _._2 != null }
-    }
-  def update(delta: Seq[(String,X)]): Unit = diffs.set(delta)
-  def remove(delta: Seq[String]): Unit = diffs.set(delta.map(_ -> null.asInstanceOf[X]))
+  val diffs: VarSeq[(String, Option[X])] = new VarSeq[(String, Option[X])]()(n)
+  val aggregate: Rx[Map[String, X]] = diffs.scan(Map[String, X]())(IncMap.add[X])
+  def sampleAsDelta: Seq[(String, Option[X])] = aggregate.sample.mapValues(x => Some(x)).toSeq
+  def update(delta: Seq[(String, Option[X])]): Unit = diffs.set(delta)
+  def remove(delta: Seq[String]): Unit = diffs.set(delta.map(_ -> None))
   def remove(func: X => Boolean): Unit = remove(aggregate.sample.filter(x => !func(x._2)).keys.toSeq)
+}
+object IncMap {
+  def add[X](x: Map[String, X], y: Seq[(String, Option[X])]): Map[String, X] = {
+    (x.mapValues(x => Some(x)) ++ y) collect { case (k, Some(v)) => (k, v) }
+  }
 }

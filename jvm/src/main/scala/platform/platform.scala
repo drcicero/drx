@@ -22,8 +22,8 @@ import scala.concurrent.{ExecutionContext, Future}
 
 /** Created by david on 17.09.17. */
 trait platform extends abstractplatform {
-  private implicit val system = ActorSystem()
-  private implicit val materializer = ActorMaterializer()
+  private implicit val system: ActorSystem = ActorSystem()
+  private implicit val materializer: ActorMaterializer = ActorMaterializer()
   override implicit val executionContext: ExecutionContext = ExecutionContext.fromExecutor(Platform.runLater(_))
   override def fpost(url: String, body: String): Future[String] =
     Http().singleRequest(
@@ -67,7 +67,7 @@ trait platform extends abstractplatform {
     Files.write(Paths.get(s"debuggraphs/graph-$j-$i.dot"), graphvizStr.getBytes())
 
     // save screenshot
-    if (stage != null && stage.getScene != null) {
+    if (false && stage != null && stage.getScene != null) {
       val img = stage.getScene.snapshot(null)
       val bufimg = SwingFXUtils.fromFXImage(img, null)
       val file = Paths.get(s"debuggraphs/screenshot-$j-$i.png").toFile

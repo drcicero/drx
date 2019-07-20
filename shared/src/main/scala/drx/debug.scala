@@ -191,7 +191,9 @@ object debug {
 
   def writeToDisk(str: String): Unit = {
     concreteplatform.gc()
-    val heap = " (" + drx.debug.debugRxs.keys.size + " nodes)"
+    val all = drx.debug.debugRxs.keys.size
+    val remote = drx.debug.debugRxs.keys.count(_.toString.startsWith("remote"))
+    val heap = " (" + all + " nodes, "+ remote + " remotes)"
     hook(str + heap)
     concreteplatform.writeToDisk(str + heap)
   }

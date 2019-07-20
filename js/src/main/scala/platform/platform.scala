@@ -3,8 +3,7 @@ package platform
 import drx.{AbstractWeakMap, AbstractWeakSet, abstractplatform}
 import org.scalajs.dom.experimental.{Fetch, HttpMethod, RequestInit}
 
-import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 import scala.scalajs.js
 import scala.scalajs.js.timers.setTimeout
 
@@ -26,20 +25,27 @@ class JSWeakMap[Key, Value] extends AbstractWeakMap[Key, Value] {
 /** Created by david on 17.09.17. */
 //  type PotentialWeakHashMap[K,V] = NoMap[K,V]
 trait platform extends abstractplatform {
-  implicit val executionContext = global
+  override implicit val executionContext: ExecutionContext = scala.concurrent.ExecutionContext.Implicits.global
   override def fpost(url: String, body: String): Future[String] =
     Fetch.fetch(url, RequestInit(HttpMethod.POST, body = body))
       .toFuture.flatMap(x => x.text.toFuture)
   override def after[X](millis: Double)(func: () => X): Unit = setTimeout(millis){ func() }
 
   override def heapSize(): Double = js.Dynamic.global.process.memoryUsage().heapUsed.asInstanceOf[Double]
-  override def gc(): Unit = js.Dynamic.global.gc()
+  override def gc(): Unit = try { js.Dynamic.global.gc() } catch { case _: Exception => }
 
   override def WeakMap[K,V]() = new JSWeakMap[K,V]()
   //override def WeakSetOrNot[K, V](): AbstractWeakSet[K, V] = new drx.AllSet()
   override def WeakSetOrNot[K, V](): AbstractWeakSet[K, V] = new drx.NoSet()
 
+  private var isMeasuring: Boolean = false
   override def writeToDisk(desc:String=""): Unit = {}
-  override def startMeasure(): Unit = measurements += js.Date.now() //scala.scalajs.js.Performance.now()
-  override def endMeasure(): Unit =   measurements += js.Date.now() //scala.scalajs.js.Performance.now()
+  override def startMeasure(): Unit = if (!isMeasuring) {
+    isMeasuring = true
+    measurements += js.Date.now() //scala.scalajs.js.Performance.now()
+  }
+  override def endMeasure(): Unit = if (isMeasuring) {
+    isMeasuring = false
+    measurements += js.Date.now() //scala.scalajs.js.Performance.now()
+  }
 }

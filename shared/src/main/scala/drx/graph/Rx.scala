@@ -77,7 +77,7 @@ trait Rx[+X] { this: Getr[X] =>
 
   @inline def changes(implicit n: Name): Rx[X] = {
     var oldValue: Try[X] = internals.emptyValExc()
-    graph.Rx[X]{ () =>
+    Rx[X]{ () =>
       val newValue = Try(this.get)
       val result =
         if (newValue != oldValue) newValue

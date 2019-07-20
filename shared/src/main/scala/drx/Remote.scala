@@ -3,7 +3,6 @@ package drx
 import java.util.concurrent.ThreadLocalRandom
 
 import concreteplatform.executionContext
-import drx.Network.ClientId
 import drx.graph.{Obs, Rx, VarSeq, Var}
 import upickle.default
 import upickle.default.{ReadWriter, macroRW, read, readwriter, write}
@@ -12,22 +11,22 @@ import scala.collection.mutable
 import scala.concurrent.Future
 import scala.util.{DynamicVariable, Failure, Success, Try}
 
-private sealed trait Msgi
-private case class Listen(source: Network.ClientId, id: String, sync: Boolean) extends Msgi
-private case class UnListen(source: Network.ClientId, id: String, sync: Boolean) extends Msgi
-private case class Change(source: Network.ClientId, id: String, payload: String, sync: Boolean) extends Msgi
-private case class Quiescent(source: Network.ClientId) extends Msgi
-private object Msgi       { implicit val rw: ReadWriter[Msgi] = ReadWriter.merge(Listen.rw, Change.rw, Quiescent.rw) }
-private object Listen     { implicit val rw: ReadWriter[Listen] = macroRW }
-private object UnListen   { implicit val rw: ReadWriter[Listen] = macroRW }
-private object Change     { implicit val rw: ReadWriter[Change] = macroRW }
-private object Quiescent  { implicit val rw: ReadWriter[Quiescent] = macroRW }
+object Remote {
+  private sealed trait Msgi
+  private case class Listen(source: Remote.ClientId, id: String, sync: Boolean) extends Msgi
+  //private case class UnListen(source: Network.ClientId, id: String, sync: Boolean) extends Msgi
+  private case class Change(source: Remote.ClientId, id: String, payload: String, sync: Boolean) extends Msgi
+  private case class Quiescent(source: Remote.ClientId) extends Msgi
+  private object Msgi       { implicit val rw: ReadWriter[Msgi] = ReadWriter.merge(Listen.rw, Change.rw, Quiescent.rw) }
+  private object Listen     { implicit val rw: ReadWriter[Listen] = macroRW }
+  //private object UnListen   { implicit val rw: ReadWriter[Listen] = macroRW }
+  private object Change     { implicit val rw: ReadWriter[Change] = macroRW }
+  private object Quiescent  { implicit val rw: ReadWriter[Quiescent] = macroRW }
 
-private case class Offer[X](rx: Rx[X], id: String, e: ReadWriter[X], startup: () => X)
-private case class Sub[X](rx: Var[_], e: ReadWriter[_], sync: Boolean)
-private case class SubAll[X](rx: Var[(ClientId, _)], e: ReadWriter[_], sync: Boolean)
+  private case class Offer[X](rx: Rx[X], id: String, e: ReadWriter[X], startup: () => X)
+  private case class Sub[X](rx: Var[_], e: ReadWriter[_], sync: Boolean)
+  private case class SubAll[X](rx: Var[(ClientId, _)], e: ReadWriter[_], sync: Boolean)
 
-object Network {
   type ClientId = String
 
   import Msgi.rw
@@ -38,11 +37,24 @@ object Network {
   // map remote to local var id, and otherwise
   private val offeredRx: mutable.Map[String, Offer[_]] = mutable.Map()
   private val publishedRx: mutable.Map[(Rx[_], ClientId), Obs[_]] = mutable.Map()
-  private val outbox = VarSeq[(String, Msgi)]()
+  private val outbox = mutable.ArrayBuffer[(String, Msgi)]()
 
   private val subscribedRx: mutable.Map[(ClientId, String), Sub[_]] = mutable.Map()
   private val subscribedRxFromAll: mutable.Map[String, SubAll[_]] = mutable.Map()
   private val notYetRx: mutable.Map[(ClientId, String), String] = mutable.Map()
+
+  def sharedAs[X](sig: Rx[X], id: String, startup: () => X, sync: Boolean = false)
+                 (implicit e: ReadWriter[X]): Rx[(ClientId, X)] = {
+    offer(sig, startup, id)
+    sub[X](sig.sample, id, sync=sync)
+  }
+
+  def startHeartbeat(): Unit = heartbeat().onComplete {
+    case Success(_) => concreteplatform.after(500)(startHeartbeat)
+    case Failure(e) => throw e
+  }
+
+  /* --- private --------------------------------------- */
 
   implicit def tryRW[X](implicit rw: ReadWriter[X]): ReadWriter[Try[X]] =
     readwriter[Either[String, X]].bimap[Try[X]](
@@ -51,32 +63,19 @@ object Network {
     )
 
   /* subscribe to a variable name & type */
-  def sub[X](init: X, variname: String, sync: Boolean)
-            (implicit readwriter: ReadWriter[X]): Rx[(ClientId, X)] = {
-    val remoteVar = Var[(ClientId, X)](("", init))
+  private def sub[X](init: X, variname: String, sync: Boolean)
+                    (implicit readwriter: ReadWriter[X]): Rx[(ClientId, X)] = {
+    val remoteVar = Var[(ClientId, X)]((thisClient, init))
     subscribedRxFromAll += variname -> SubAll(remoteVar.asInstanceOf[Var[(ClientId, _)]], readwriter, sync)
     remoteVar
   }
 
   /* publish a variable */
-  def offer[X](rx: Rx[X], startup: () => X, id: String)
-              (implicit e: ReadWriter[X]): Unit = {
+  private def offer[X](rx: Rx[X], startup: () => X, id: String)
+                      (implicit e: ReadWriter[X]): Unit = {
     if (offeredRx.contains(id)) return
     offeredRx(id) = Offer(rx, id, e, startup)
   }
-
-  def getAllOthers[X](sig: Rx[X], id: String, startup: () => X)
-                     (implicit e: ReadWriter[X]): Rx[(ClientId, X)] = {
-    Network.offer(sig, startup, id)
-    Network.sub[X](sig.sample, id, false)
-  }
-
-  def startHeartbeat(): Unit = heartbeat().onComplete {
-    case Success(s) => concreteplatform.after(500)(startHeartbeat)
-    case Failure(e) => throw e
-  }
-
-  /* --- private --------------------------------------- */
 
   private def getOrCreateVar[X](xRW: default.ReadWriter[X], remoteId: ClientId, hashCode: String) = {
     subscribedRx.getOrElseUpdate(
@@ -88,7 +87,7 @@ object Network {
           remoteVar
         }
         getOrElse Var.mkEmptyVar[X],
-        xRW, false)
+        xRW, sync=false)
     ).rx.asInstanceOf[Var[X]]
   }
 
@@ -114,9 +113,9 @@ object Network {
   private val pubConf = new DynamicVariable[Option[(ClientId, Boolean)]](None)
   private def pub[X](offer: Offer[X]): Unit = {
     //if (ignore) return
-    println(s"new pub ${offer.id} ${offer.rx}")
     pubConf.value foreach { case (to, sync) =>
       if (!publishedRx.contains((offer.rx, to))) {
+        println(s"new pub ${offer.id} ${offer.rx} $to")
         enqueueChange(offer, to, sync, offer.startup())
         val remoteObs = offer.rx
           .map /* map vs foreach? */ { value =>
@@ -131,28 +130,29 @@ object Network {
 
   private def enqueueChange[X](offer: Offer[X], to: ClientId, sync: Boolean, value: X): Unit = {
     println(s"send -> $to ${offer.id} $value")
-    val w = write(offer.startup())(offer.e)
+    val w = write(value)(offer.e)
     val c = Change(thisClient, offer.id, w, sync)
-    if (sync) drx.atomic.waiting += to
-    outbox set (to, c)
+    if (sync) drx.atomic.waitingFor += to
+    appendOutbox(to, c)
   }
 
   var knownClients: Set[ClientId] = Set()
   private def heartbeat(): Future[Unit] = {
-    concreteplatform.fpost("./pull/" + thisClient, "").map { blob =>
+    concreteplatform.fpost(url="./pull/" + thisClient, body="").map { blob =>
+      println("recv <-- " +   blob)
       val (aliveClients, news) = read[(Set[ClientId], Seq[String])](blob)
 
       val killedClients = knownClients -- aliveClients
       val addedClients = aliveClients -- knownClients
 
       publishedRx.foreach { case ((rx, to), obs) =>
-        if (killedClients contains to) obs.stop() }
+        if (killedClients contains to) obs.stop() } // TODO untested
 
       knownClients = aliveClients
       addedClients.foreach { newremote =>
         subscribedRxFromAll.foreach { case (variId, SubAll(_, _, sync)) =>
           println(s"listen -> $newremote $variId")
-          outbox set (newremote, Listen(thisClient, variId, sync)) } }
+          appendOutbox(newremote, Listen(thisClient, variId, sync)) } }
 
       news foreach { item => println("  recv " + item) }
 
@@ -174,13 +174,13 @@ object Network {
           println(s"    recv ch $sync")
           if (sync) drx.withInstant(_.runBeforeWait { () =>
             println(s"s quiescent $thisClient -> $remoteClient")
-            outbox set(remoteClient, Quiescent(thisClient))
+            appendOutbox(remoteClient, Quiescent(thisClient))
           })
 
         case Quiescent(remoteClient) =>
-          drx.atomic.waiting remove remoteClient
-          println(s"    r quiescent ${drx.atomic.waiting}")
-          if (drx.atomic.waiting.isEmpty)
+          drx.atomic.waitingFor remove remoteClient
+          println(s"    r quiescent ${drx.atomic.waitingFor}")
+          if (drx.atomic.waitingFor.isEmpty)
             drx.atomic(()) // empty transaction to finish previous transactions
       }
     } }
@@ -192,36 +192,58 @@ object Network {
     concreteplatform.fpost("./push", write(tmp.map { case (a,b) => (a, write(b)) }))
   }
 
-  def bufferTime[X](incoming: Rx[X], beforeMillis: Int, betweenMillis: Int)
-                   (implicit readWriter: ReadWriter[X]): Var[Seq[X]] = {
-    val buffer = mutable.ListBuffer[X]()
-    var running = false
-    val outgoing = Var[Seq[X]](Seq[X]())
-
-    def f(): Unit = {
-      if (buffer.nonEmpty) {
-        val tmp = Seq() ++ buffer
-        buffer.clear()
-        outgoing set tmp
-        concreteplatform.after(betweenMillis)(f)
-      } else {
-        running = false
-      }
-    }
-
-    incoming map /* map vs foreach */{ x =>
-      buffer ++= Seq(x)
-      if (!running) {
-        running = true
-        concreteplatform.after(beforeMillis)(f)
-      }
-    } foreach (_ => ())
-
-    outgoing
-  }
+//  def bufferTime[X](incoming: Rx[X], beforeMillis: Int, betweenMillis: Int)
+//                   (implicit readWriter: ReadWriter[X]): Var[Seq[X]] = {
+//    val buffer = mutable.ListBuffer[X]()
+//    var running = false
+//    val outgoing = Var[Seq[X]](Seq[X]())
+//
+//    def f(): Unit = {
+//      if (buffer.nonEmpty) {
+//        val tmp = Seq() ++ buffer
+//        buffer.clear()
+//        outgoing set tmp
+//        concreteplatform.after(betweenMillis)(f)
+//      } else {
+//        running = false
+//      }
+//    }
+//
+//    incoming map /* map vs foreach */{ x =>
+//      buffer ++= Seq(x)
+//      if (!running) {
+//        running = true
+//        concreteplatform.after(beforeMillis)(f)
+//      }
+//    } foreach (_ => ())
+//
+//    outgoing
+//  }
+//  bufferTime(outbox, 100, 100) map sendOut foreach (_ => ())
 
   //private var ignore = false
-  bufferTime(outbox, 100, 100) map sendOut foreach (_ => ())
+  private var running = false
+  private def appendOutbox(to: Remote.ClientId, msg: Msgi): Unit = {
+    outbox append ((to, msg))
+
+//    def f(): Unit = {
+//      if (outbox.nonEmpty) {
+        val tmp = Seq() ++ outbox
+        outbox.clear()
+        println("send --> " + tmp)
+        sendOut(Seq(tmp))
+//        concreteplatform.after(100)(f)
+//      } else {
+//        running = false
+//      }
+//      }
+
+//    if (!running) {
+//      running = true
+//      concreteplatform.after(100)(f)
+//    }
+  }
+
 }
 
 //    type PreDelta = (Set[Task], Set[Task])

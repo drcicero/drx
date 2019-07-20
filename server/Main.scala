@@ -39,11 +39,16 @@ object Server {
       get {
         path("") { getFromFile("index.html") } ~
         path("viz.js") { getFromFile("viz.js") } ~
-        path("todojs.js") { getFromFile {
-          val patha = "/tmp/sbt/" + new java.io.File("").getAbsolutePath().replace("/", "-") + "-todojs/scala-2.12/todojs-fastopt.js"
-          val pathb = "/tmp/sbt/" + new java.io.File("").getAbsolutePath().replace("/", "-") + "-todojs/scala-2.12/todojs-opt.js"
-          if (new java.io.File(patha).lastModified() > new java.io.File(pathb).lastModified()) patha else pathb
-        } } ~
+        path("todojs.js") {
+          def newer(patha: String, pathb: String) =
+            if (new java.io.File(patha).lastModified() > new java.io.File(pathb).lastModified())
+              patha else pathb
+          val pathc = "out/todojs/fullOpt/dest/out.js"
+          val pathd = "out/todojs/fastOpt/dest/out.js"
+          val result = Seq(patha, pathb) reduceLeft newer
+          println(result)
+          getFromFile(result)
+        } ~
         path("quit") { system.terminate(); complete{ "goto /index.html" } }
       } ~
       post {

@@ -34,7 +34,6 @@ import scala.util.{DynamicVariable, Failure, Success, Try}
 
 
 private object internals {
-
   class EmptyValExc(cause: Throwable) extends Throwable(cause)
 
   @inline def emptyValExc[X](e:Throwable = null): Try[X] = Failure {
