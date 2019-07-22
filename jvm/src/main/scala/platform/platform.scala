@@ -53,21 +53,23 @@ trait platform extends abstractplatform {
       f.getName.endsWith(".svg") || f.getName.endsWith(".dot") ||
       f.getName.endsWith(".png") || f.getName.endsWith(".txt") ))
     .foreach(f => f.delete())
-  var j = ThreadLocalRandom.current().nextInt().toHexString.slice(0, 8)
-  var i = 0
+  private val j = ThreadLocalRandom.current().nextInt().toHexString.slice(0, 8)
+  private var i = 0
+
   override def writeToDisk(desc: String): Unit = {
     i += 1
 
-//    val pid = ProcessHandle.current.pid
-//    val histo = Runtime.getRuntime.exec("jmap -histo:live " + pid)
-//    Files.write(Paths.get(s"debuggraphs/histo-$j-$i.txt"), histo.getInputStream.readAllBytes())
+    val pid = ProcessHandle.current.pid
+    val histo = Runtime.getRuntime.exec("jmap -histo:live " + pid)
+    Files.write(Paths.get(s"debuggraphs/histo-$j-$i.txt"), histo.getInputStream.readAllBytes())
 
     // save graph
     val graphvizStr = drx.debug.stringit(desc=desc)
     Files.write(Paths.get(s"debuggraphs/graph-$j-$i.dot"), graphvizStr.getBytes())
 
     // save screenshot
-    if (false && stage != null && stage.getScene != null) {
+    val saveScreenshot = false
+    if (saveScreenshot && stage != null && stage.getScene != null) {
       val img = stage.getScene.snapshot(null)
       val bufimg = SwingFXUtils.fromFXImage(img, null)
       val file = Paths.get(s"debuggraphs/screenshot-$j-$i.png").toFile

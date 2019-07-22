@@ -14,11 +14,12 @@ object Main {
       button("measurements", onclick:={ () =>
         dom.document.body.textContent = ""+concreteplatform.measurements.mkString(", ") }).render
     )
-    insertChild(dom.document.body,
+    dom.document.body.appendChild(
       div(
-        button(onclick:={ () => AppTodo.main() }, "todojs"),
-        button(onclick:={ () => AppChat.main(true) }, "chat sync"),
-        button(onclick:={ () => AppChat.main(false) }, "chat sync")
+        button(onclick:={ () => AppTodo.main() }, "push todojs"),
+        button(onclick:={ () => AppChat.main(true) }, "push chat sync"),
+        button(onclick:={ () => AppChat.main(false) }, "push chat async"),
+        button(onclick:={ () => standard.SAppTodo.main() }, "pull todo js")
       ).render)
   }
 

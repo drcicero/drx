@@ -30,6 +30,9 @@ object Server {
 //  def timeoutElse[X](x: Future[X], i: Long)(alt: () => X): Future[X] =
 //    Future.firstCompletedOf(Seq(x,
 //      Future { Thread.sleep(i); alt() }))
+  def newer(patha: String, pathb: String): String =
+    if (new java.io.File(patha).lastModified() > new java.io.File(pathb).lastModified())
+      patha else pathb
 
   def main(args: Array[String]): Unit = {
     implicit val system = ActorSystem()
@@ -40,14 +43,18 @@ object Server {
         path("") { getFromFile("index.html") } ~
         path("viz.js") { getFromFile("viz.js") } ~
         path("todojs.js") {
-          def newer(patha: String, pathb: String) =
-            if (new java.io.File(patha).lastModified() > new java.io.File(pathb).lastModified())
-              patha else pathb
-          val pathc = "out/todojs/fullOpt/dest/out.js"
-          val pathd = "out/todojs/fastOpt/dest/out.js"
-          val result = Seq(patha, pathb) reduceLeft newer
+          val result = Seq(
+            "out/todojs/fullOpt/dest/out.js",
+            "out/todojs/fastOpt/dest/out.js") reduceLeft newer
           println(result)
           getFromFile(result)
+        } ~
+        path("out.js.map") {
+          val result = Seq(
+            "out/todojs/fullOpt/dest/out.js.map",
+            "out/todojs/fastOpt/dest/out.js.map") reduceLeft newer
+          println(result)
+           getFromFile(result)
         } ~
         path("quit") { system.terminate(); complete{ "goto /index.html" } }
       } ~

@@ -39,10 +39,7 @@ trait Rx[+X] { this: Getr[X] =>
     result
   }
 
-  // TODO differentiate history aware foreach, from signal foreach
-  //      need to write history aware foreach.
-  //      make history aware foreach default.
-  //      signal foreach is for graphics?
+  // TODO differentiate history aware foreach, from stateless foreach?
 
   /** this creates an callback, that is deactivated. you can do this even inside a signal.
     * then, later and outside of signals you can start the callback.

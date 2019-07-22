@@ -31,7 +31,7 @@ object AppChat {
 
     val dcommonHistory: Rx[Seq[(String, Option[Item])]] =
       sharedAs(localHistory.diffs, "history", localHistory.sampleAsDelta _, sync=sync)
-      .map { case (clientId, lmsg) => lmsg}
+      .map { case (clientId, lmsg) => lmsg }
 //    val dcommonHistory: Rx[Seq[(String, Option[Item])]] =
 //      sharedAs(localHistory.aggregate, "history", ()=>localHistory.aggregate.get)
 //      .map { case (clientId, lmsg) => lmsg }.toSeq

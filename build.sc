@@ -13,16 +13,16 @@ object jvm extends CrossSbtModule {
   )
 }
 
-object native extends CrossSbtModule with ScalaNative {
-  def ivyDeps = Agg(cfg.upickle, cfg.source) ++ cfg.akka
-  def crossScalaVersion = "2.12.8"
-  def platformSegment = "jvm"
-
-  def sources = T.sources(
-    millSourcePath / platformSegment / "src" / "main",
-    millSourcePath / "shared" / "src" / "main"
-  )
-}
+//object native extends CrossSbtModule with ScalaNative {
+//  def ivyDeps = Agg(cfg.upickle, cfg.source) ++ cfg.akka
+//  def crossScalaVersion = "2.12.8"
+//  def platformSegment = "jvm"
+//
+//  def sources = T.sources(
+//    millSourcePath / platformSegment / "src" / "main",
+//    millSourcePath / "shared" / "src" / "main"
+//  )
+//}
 
 object js extends CrossSbtModule with ScalaJSModule {
   def ivyDeps = Agg(cfg.upickle, cfg.source, cfg.scalajsdom)

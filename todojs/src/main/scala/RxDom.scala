@@ -20,7 +20,7 @@ object RxDom {
 
   // for some subtypes of Modifier, implicit conversions aproximating
   //   Rx[Modifier] ==> Modifier
-  implicit def tagToMod(sig: Rx[TypedTag[_ <: Element]]): Modifier = (parent: Element) => {
+  implicit def tagToMod[X <: Element](sig: Rx[TypedTag[X]]): Modifier = (parent: Element) => {
     var oldelem: Element = span("{{init}}").render
     val sinkTag = sig.map(_.render).mkForeach { newelem =>
       replaceChild(parent, oldelem, newelem)
