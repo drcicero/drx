@@ -6,8 +6,12 @@ import org.scalajs.dom
 import scalatags.JsDom
 import scalatags.JsDom.all._
 
+import interface.DSL._
+import SDom._
+import SDomHelper._
+
 object SAppTodo {
-  import PullDSL._
+  interface.DSL.innerdsl = pull.pullDSL
 
   case class Task(title: Var[String], done: Var[Boolean]) {
     val folded: Val[Int] = title.map(_=>1) // .scan(0)((state, event) => state + 1) // TODO
@@ -44,25 +48,6 @@ object SAppTodo {
   }
 
   def main(): Unit = {
-//    val svg_container = dom.document.querySelector("#svg-container")
-//    val slider = input(tpe:="range", min:=0, max:=0).render
-//    val content = div.render
-//    svg_container.appendChild(slider)
-//    svg_container.appendChild(content)
-//    val items = mutable.Buffer[(String, String)]()
-//    slider.onchange = { e =>
-//      val item = items(slider.valueAsNumber)
-//      content.innerHTML = item._1 + "<br>" +
-//        dom.window.asInstanceOf[js.Dynamic]
-//          .Viz(item._2, Map("engine" -> "dot")).asInstanceOf[String]
-//    }
-//    debug.hook = {str =>
-//      val string = drx.debug.stringit(collectChildSinks(dom.document.body))
-//      // val idx = slider.max.toInt + 1
-//      slider.max = items.size.toString
-//      items += str -> string
-//    }
-
     val todotext = Todolist.text.map(span(_))
     val textlen = Todolist.len.map(span(_))
 
@@ -71,7 +56,7 @@ object SAppTodo {
     // --> Todolist.model.diffs.mapmapValues(rxTask)
 
     val todolist = div(
-      ul(Todolist.model.diffs.mapmapValues(rxTask)),
+      ul(Todolist.model.aggregate.map(_.mapValues(rxTask))),
       div(Todolist.model.aggregate.map(lst => if (lst.isEmpty) cls:="info" else cls:="hidden"), "All done! :)"))
 
     // toast toast toast toast toast
@@ -100,8 +85,7 @@ object SAppTodo {
   }
 
   val rxTask: Task => JsDom.TypedTag[dom.html.Element] = /*Extras.lazyExtAttr*/ { that =>
-//      val changeCtr = Scan(0){ prev => that.title.get; that.done.get; prev + 1 }
-
+//    val changeCtr = Scan(0){ prev => that.title.get; that.done.get; prev + 1 }
     val changed = Var[Boolean](false)
     changed foreach (_ => Todolist.removeEmptyTodos())
 //    val lastentries = Scan(List[String]()) { prev => changed.get; that.title.get :: prev.take(10) }

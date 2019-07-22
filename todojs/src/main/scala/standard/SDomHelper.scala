@@ -7,7 +7,10 @@ import scalatags.JsDom.TypedTag
 import scalatags.JsDom.all._
 import scalatags.generic.{AttrPair, StylePair}
 
-trait SDomHelper extends SDom {
+import standard.interface.DSL._
+import SDom._
+
+object SDomHelper {
 
   // Declarative.
   // An interesting property of Dom.Node is, that they can only have one parent!
@@ -25,7 +28,7 @@ trait SDomHelper extends SDom {
     clicked.foreach(x => texts set full.sample)
 
     div(
-      label(tagToMod(labelText.map(span(_)))), br,
+      label(labelText.map(span(_))), br,
       sInput(first, placeholder:="first name", style:="display:inline;width:48%"),
       sInput(last,  placeholder:="last name", style:="display:inline;width:48%"),
       sButton(() => clicked.transform(_+1), value:="submit",

@@ -1,15 +1,19 @@
 package standard
 
 import drx.concreteplatform
-import org.scalajs.dom
-import org.scalajs.dom.Element
+
 import scalatags.JsDom.TypedTag
 import scalatags.JsDom.all._
 import scalatags.generic.{AttrPair, StylePair}
 
 import scala.collection.mutable
 import scala.language.implicitConversions
+
+import org.scalajs.dom
+import org.scalajs.dom.Element
 import scala.scalajs.js
+
+import standard.interface.DSL._
 
 // TODO never .render followed by appendChild. Then the component was not activated...
 //      maybe fixed now
@@ -17,7 +21,7 @@ import scala.scalajs.js
 // TODO maybe convert to Frags instead of Modifiers?
 
 /** Created by david on 15.09.17. */
-trait SDom extends DSL {
+object SDom {
 
   // for some subtypes of Modifier, implicit conversions aproximating
   //   Rx[Modifier] ==> Modifier
@@ -48,6 +52,25 @@ trait SDom extends DSL {
       else mod.applyTo(parent)
     }
     addSink(parent, sinkAttr)
+  }
+
+  implicit def seqToMod[X <: dom.Element](diffs: Val[TraversableOnce[(String, TypedTag[X]]]
+                                         ): Modifier = (parent: Element) => {
+    val sinkDiff = diffs.map { diffmap =>
+
+      val lst = parent.childNodes
+      (0 until lst.length) foreach { i => lst(i) match {
+        case element: Element => removeChild(parent, element)
+        case _ =>
+      } }
+
+      diffmap foreach { case (k, tag) =>
+        val newelem = tag.render
+        insertChild(parent, newelem)
+      }
+
+    }
+    addSink(parent, sinkDiff)
   }
 
   implicit def seqToMod[X <: dom.Element](diffs: Val[TraversableOnce[(String, Polarized[TypedTag[X]])]]
@@ -83,11 +106,11 @@ trait SDom extends DSL {
   }
 
   private val DATA_IS_REACTIVE = "data-is-reactive"
-  private val sinkMap = concreteplatform.WeakMap[dom.Node, mutable.Set[Obs]]()
+  private val sinkMap = concreteplatform.WeakMap[dom.Node, mutable.Set[Val[_]]]()
 
-  private def addSink(it: dom.Element, obs: Obs): Unit = {
+  private def addSink(it: dom.Element, obs: Val[_]): Unit = {
     val sinks = sinkMap.get(it).getOrElse {
-      val tmp = mutable.Set[Obs]()
+      val tmp = mutable.Set[Val[_]]()
       sinkMap.set(it, tmp)
       it.setAttribute(DATA_IS_REACTIVE, "true")
       tmp
@@ -95,25 +118,23 @@ trait SDom extends DSL {
     sinks += obs
   }
 
-  private def remSink(it: dom.Element, obs: Obs): Unit = {
+  private def remSink(it: dom.Element, obs: Val[_]): Unit = {
     val sinks = sinkMap.get(it).get
     sinks -= obs
     if (sinks.isEmpty) it.removeAttribute(DATA_IS_REACTIVE)
   }
 
-  def collectChildSinks(fc: dom.Element): Set[Obs] = {
+  def collectChildSinks(fc: dom.Element): Set[Val[_]] = {
     val list = fc.querySelectorAll("["+DATA_IS_REACTIVE+"]")
-//    println("collectChildSinks")
-//    for (i <- 0 until list.length) yield dom.console.log(list(i))
     (for (i <- 0 until list.length;
           y <- sinkMap.get(list(i)).getOrElse(mutable.Set()))
-      yield y).toSet[Obs]
+      yield y).toSet[Val[_]]
   }
   //  platform.platform.collector = () => collectChildSinks(dom.document.body)
 
-  private def foreachChildSink(fc: dom.Element)(f: Obs => Unit): Unit =
+  private def foreachChildSink(fc: dom.Element)(f: Val[_] => Unit): Unit =
     collectChildSinks(fc).foreach(f)
-  private def foreachSink(fc: dom.Element)(f: Obs => Unit): Unit =
+  private def foreachSink(fc: dom.Element)(f: Val[_] => Unit): Unit =
     (collectChildSinks(fc) ++ sinkMap.get(fc).getOrElse(mutable.Set())).foreach(f)
 
   private def isRooted(node: dom.Node): Boolean =
@@ -127,13 +148,12 @@ trait SDom extends DSL {
       addSink(newelem, sink)
     }
 
-//    val rooted = isRooted(parent)
-//    println(rooted)
-    //if (rooted)
-      foreachChildSink(oldelem)(forceStop(_)) // stop unrooted sinks
+    val rooted = isRooted(parent)
+    if (rooted)
+      foreachChildSink(oldelem)(_.forceStop()) // stop unrooted sinks
     parent.replaceChild(newelem, oldelem) // note order of args: replaceChild(toInsert, toRemove)
-    //if (rooted)
-      foreachSink(newelem)(forceStart(_))     // start rooted sinks
+    if (rooted)
+      foreachSink(newelem)(_.forceStart())     // start rooted sinks
     newelem.classList.remove("rx-building")
 
     // why order stop, replace, start?
