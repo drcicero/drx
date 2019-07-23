@@ -6,12 +6,14 @@ import org.scalajs.dom
 import scalatags.JsDom
 import scalatags.JsDom.all._
 
-import interface.DSL._
+import drx.interface.DSL._
+import drx.Extras
+
 import SDom._
 import SDomHelper._
 
 object SAppTodo {
-  interface.DSL.innerdsl = pull.pullDSL
+  drx.interface.DSL.innerdsl = drx.pull.pullDSL
 
   case class Task(title: Var[String], done: Var[Boolean]) {
     val folded: Val[Int] = title.map(_=>1) // .scan(0)((state, event) => state + 1) // TODO
@@ -56,19 +58,18 @@ object SAppTodo {
     // --> Todolist.model.diffs.mapmapValues(rxTask)
 
     val todolist = div(
+//      span(Val { span(Todolist.model.aggregate.get.toString) }),
       ul(Todolist.model.aggregate.map(_.mapValues(rxTask))),
       div(Todolist.model.aggregate.map(lst => if (lst.isEmpty) cls:="info" else cls:="hidden"), "All done! :)"))
-
-    // toast toast toast toast toast
 
     val obj = div(
       h1("DO TODOS! "/*, drx.Network.localId*/),
       sCommand(Todolist.addNewTodo, placeholder:="enter new todo here"),
 
       //      div(todolist),
-      div(/*drx.Network.localId, */todolist, style:="display:inline-block; width:48%"),
+      div(todolist, style:="display:inline-block; width:48%"),
       div(style:="display:inline-block; width:4%"),
-      //      div(todolist, style:="display:inline-block; width:48%"),
+      div(todolist, style:="display:inline-block; width:48%"),
       //      div(style:="display:inline-block; width:2%"),
       //      div(allOtherModels.map(x => span(x._1)), todolist2, style:="display:inline-block; width:48%"),
 
@@ -84,28 +85,22 @@ object SAppTodo {
     transact()
   }
 
-  val rxTask: Task => JsDom.TypedTag[dom.html.Element] = /*Extras.lazyExtAttr*/ { that =>
-//    val changeCtr = Scan(0){ prev => that.title.get; that.done.get; prev + 1 }
+  val rxTask: Task => JsDom.TypedTag[dom.Element] = Extras.lazyExtAttrForPull { that: Task =>
+    val changeCtr = Val((that.title.get, that.done.get)).scan(0){ (state, ev) => state + 1 }
     val changed = Var[Boolean](false)
     changed foreach (_ => Todolist.removeEmptyTodos())
-//    val lastentries = Scan(List[String]()) { prev => changed.get; that.title.get :: prev.take(10) }
+    val lastentries = Val((changed.get, that.title.get)).scan(List[String]()){ (state, ev) => ev._2 :: state.take(10) }
 
     li(
       Val(cls := (if (that.done.get) "task done" else "task")),
-
       sCheckbox(that.done),
-
       sInput(that.title,
         Val(color := Todolist.todoTextColor.get),
         list := "datalist-" + that.hashCode(),
-        onchange := (() => changed.transform(!_))
-      ),
-
-//      lastentries.map(it => datalist(
-//        id := "datalist-" + that.hashCode(),
-//        it.map(it => option(value := it)))),
-
-//      changeCtr.map(span(_))
-    )
+        onchange := (() => changed.transform(!_))),
+      lastentries.map(it => datalist(
+        id := "datalist-" + that.hashCode(),
+        it.map(it => option(value := it)))),
+      changeCtr.map(span(_)))
   }
 }

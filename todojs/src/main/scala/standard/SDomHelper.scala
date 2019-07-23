@@ -7,7 +7,7 @@ import scalatags.JsDom.TypedTag
 import scalatags.JsDom.all._
 import scalatags.generic.{AttrPair, StylePair}
 
-import standard.interface.DSL._
+import drx.interface.DSL._
 import SDom._
 
 object SDomHelper {

@@ -86,7 +86,7 @@ object AppTodo {
   }
 
   val rxTask: Task => JsDom.TypedTag[dom.html.Element] =
-    Extras.lazyExtAttr { that =>
+    Extras.lazyExtAttrForPull { that =>
       val changeCtr = Scan(0){ prev => that.title.get; that.done.get; prev + 1 }
 
       val changed = Var[Boolean](false)

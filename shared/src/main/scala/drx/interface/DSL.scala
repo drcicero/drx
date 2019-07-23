@@ -1,20 +1,30 @@
-package standard.interface
+package drx.interface
 
 object DSL extends DSL {
   var innerdsl: DSL = dummy
-  final type Obs = Val[Unit]
+  // final type Obs = Val[Unit]
 
   override def Val[X](e: => X): Val[X] = innerdsl.Val(e)
   override def Var[X](e: => X): Var[X] = innerdsl.Var(e)
   override def MultiVar[X](): MultiVar[X] = innerdsl.MultiVar()
   override def forceTick(): Unit = innerdsl.forceTick()
-  override def transact[X](f: => X): X = innerdsl.transact(f)
+
+  var transactionActive = 0
+  def transact[X](f: => X): X = {
+    transactionActive += 1
+    val x = f
+    transactionActive -= 1
+    if (transactionActive == 0)
+      forceTick()
+    x
+  }
 
   abstract class Val[+X](dsl: DSL) {
     def get: X
     def sample: X
     def forceStart(): Unit
     def forceStop(): Unit
+    def scan[Y](init: Y)(f: (Y, X) => Y): Val[Y]
 
     def zip[Y](y: Val[Y]): Val[(X,Y)] = dsl.Val((get, y.get))
     def map[Y](f: X => Y): Val[Y] = dsl.Val(f(get))
@@ -22,10 +32,6 @@ object DSL extends DSL {
       val result = dsl.Val(f(get))
       result.forceStart() // leaky!
       result
-    }
-    def scan[Y](init: Y)(comb: (Y, X) => Y): Val[Y] = {
-      var x = init
-      dsl.Val { x = comb(x, get); x }
     }
   }
 
@@ -63,27 +69,9 @@ object DSL extends DSL {
   }
 }
 
-object dummy extends DSL {
-  def Val[X](e: => X): DSL.Val[X] = ???
-  def Var[X](e: => X): DSL.Var[X] = ???
-  def MultiVar[X](): DSL.MultiVar[X] = ???
-  def forceTick(): Unit = ???
-  def transact[X](f: X => X): X = ???
-}
-
 trait DSL {
-  def Val[X](e: => X): DSL.Val[X]
-  def Var[X](e: => X): DSL.Var[X]
-  def MultiVar[X](): DSL.MultiVar[X]
+  def Val[X](e: => X): DSL.Val[X] // signals
+  def Var[X](e: => X): DSL.Var[X] // changable, should we provide expr or val?
+  def MultiVar[X](): DSL.MultiVar[X] // events
   def forceTick(): Unit
-
-  var transactionActive = 0
-  def transact[X](f: => X): X = {
-    transactionActive += 1
-    val x = f
-    transactionActive -= 1
-    if (transactionActive == 0)
-      forceTick()
-    x
-  }
 }

@@ -13,7 +13,7 @@ import org.scalajs.dom
 import org.scalajs.dom.Element
 import scala.scalajs.js
 
-import standard.interface.DSL._
+import drx.interface.DSL._
 
 // TODO never .render followed by appendChild. Then the component was not activated...
 //      maybe fixed now
@@ -54,12 +54,13 @@ object SDom {
     addSink(parent, sinkAttr)
   }
 
-  implicit def seqToMod[X <: dom.Element](diffs: Val[TraversableOnce[(String, TypedTag[X]]]
+  implicit def seqToMod[X <: dom.Element](diffs: Val[TraversableOnce[(String, TypedTag[X])]]
                                          ): Modifier = (parent: Element) => {
     val sinkDiff = diffs.map { diffmap =>
 
       val lst = parent.childNodes
-      (0 until lst.length) foreach { i => lst(i) match {
+      // TODO why is reverse necessary?
+      (0 until lst.length).reverse foreach { i => lst(i) match {
         case element: Element => removeChild(parent, element)
         case _ =>
       } }
@@ -73,7 +74,7 @@ object SDom {
     addSink(parent, sinkDiff)
   }
 
-  implicit def seqToMod[X <: dom.Element](diffs: Val[TraversableOnce[(String, Polarized[TypedTag[X]])]]
+  implicit def deltaToMod[X <: dom.Element](diffs: Val[TraversableOnce[(String, Polarized[TypedTag[X]])]]
                                          ): Modifier = (parent: Element) => {
     val map = mutable.Map[String, Element]()
     val sinkDiff = diffs.map { diffmap =>
