@@ -9,7 +9,9 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.ActorMaterializer
+
 import drx.{AbstractWeakMap, AbstractWeakSet, ScalaWeakMap, abstractplatform}
+
 import javafx.util.Duration
 import javafx.animation.{KeyFrame, Timeline}
 import javafx.application.Platform
@@ -59,9 +61,9 @@ trait platform extends abstractplatform {
   override def writeToDisk(desc: String): Unit = {
     i += 1
 
-    val pid = ProcessHandle.current.pid
-    val histo = Runtime.getRuntime.exec("jmap -histo:live " + pid)
-    Files.write(Paths.get(s"debuggraphs/histo-$j-$i.txt"), histo.getInputStream.readAllBytes())
+    // save histo
+    val histo = GCHelper.getHisto3
+    Files.writeString(Paths.get(s"debuggraphs/histo-$j-$i.txt"), histo)
 
     // save graph
     val graphvizStr = drx.debug.stringit(desc=desc)
