@@ -6,14 +6,13 @@ import drx._
 import main.{Task, Todolist}
 import RxFxHelper._
 import drx.graph.{Rx, Val, Var}
+import RxFx.SignalToNode
 
 class AppTodo extends Application {
 
   override def start(primaryStage: Stage): Unit = {
     concreteplatform.storePrimaryStage(primaryStage)
     concreteplatform.fpost("test", "test")
-
-    import RxFx.SignalToNode
 
 //    val todoTextColor = Var("g")
 //    val z = todoTextColor.map(x => x+1).map {x => println(s"dok $x"); x+1} .scan("") {(acc, x) => println("todoTextColor " + x); acc +","+ x}
@@ -24,7 +23,6 @@ class AppTodo extends Application {
       rxCheckBox(task.done), rxTextField(task.title),
       task.folded.map(x => label(x.toString)).drender
     )
-
 
     val textfieldstring = Var("")
     val textfield = rxTextField(textfieldstring, "enter new todos here!")

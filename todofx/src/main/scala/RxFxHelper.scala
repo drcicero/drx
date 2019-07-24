@@ -13,7 +13,7 @@ object RxFx {
     foreachObs(medium)(_.stop())
     medium.getChildren.remove(0)
     medium.getChildren.add(newelem)
-    if (medium.isVisible) foreachObs(medium)(_.start())
+    if (medium.getScene() != null) foreachObs(medium)(_.start())
   }
 
   def foreachObs(fc: Parent)(f: Obs[_] => Unit): Unit = {
@@ -37,11 +37,6 @@ object RxFx {
     }
   }
 
-  //  def collectAllObs(fc: Parent): Set[Sink[_]] = {
-  //    val set = mutable.Set[Sink[_]]()
-  //    foreachObs(fc)(set += _)
-  //    set.toSet[Sink[_]]
-  //  }
 }
 
 object RxFxHelper {
@@ -84,4 +79,5 @@ object RxFxHelper {
     checkbox.observer = done mkForeach checkbox.setSelected
     checkbox.setOnAction { _ => done.transform(!_) }
     checkbox
-  }}
+  }
+}

@@ -19,7 +19,10 @@ object Main {
         button(onclick:={ () => AppTodo.main() }, "push todojs"),
         button(onclick:={ () => AppChat.main(true) }, "push chat sync"),
         button(onclick:={ () => AppChat.main(false) }, "push chat async"),
-        button(onclick:={ () => standard.SAppTodo.main() }, "pull todo js")
+        button(onclick:={ () => standard.SAppTodo.main() }, "pull todo js"),
+        button(onclick:={ () => away.JSGUI.replace(
+          dom.document.body.lastElementChild,
+          drx.interface.Fun.mkATodoApp(away.JSGUI)) }, "abstract pull todo js")
       ).render)
   }
 

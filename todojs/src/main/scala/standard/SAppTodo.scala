@@ -3,12 +3,11 @@ package standard
 import java.util.concurrent.ThreadLocalRandom
 
 import org.scalajs.dom
-import scalatags.JsDom
+import scalatags.JsDom.TypedTag
 import scalatags.JsDom.all._
 
 import drx.interface.DSL._
 import drx.Extras
-
 import SDom._
 import SDomHelper._
 
@@ -85,7 +84,7 @@ object SAppTodo {
     transact()
   }
 
-  val rxTask: Task => JsDom.TypedTag[dom.Element] = Extras.lazyExtAttrForPull { that: Task =>
+  val rxTask: Task => TypedTag[dom.Element] = Extras.lazyExtAttrForPull { that: Task =>
     val changeCtr = Val((that.title.get, that.done.get)).scan(0){ (state, ev) => state + 1 }
     val changed = Var[Boolean](false)
     changed foreach (_ => Todolist.removeEmptyTodos())

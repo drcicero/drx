@@ -1,7 +1,7 @@
 package drx.interface
 
 object DSL extends DSL {
-  var innerdsl: DSL = dummy
+  var innerdsl: DSL = _
   // final type Obs = Val[Unit]
 
   override def Val[X](e: => X): Val[X] = innerdsl.Val(e)
