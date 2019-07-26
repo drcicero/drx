@@ -50,13 +50,14 @@ object Fun {
       changed foreach (_ => Todolist.removeEmptyTodos())
       val lastentries = Val((changed.get, that.title.get)).scan(List[String]()){ (state, ev) => ev._2 :: state.take(10) }
 
-      vbox(
+      hbox(
         //Val(cls := (if (that.done.get) "task done" else "task")),
         sCheckbox(that.done),
         sInput(that.title,
-          Val(color(Todolist.todoTextColor.get)),
+          Val(color(Todolist.todoTextColor.get))
           //        list("datalist-" + that.hashCode()),
-          callback(_ => changed.transform(!_))),
+          //scallback(_ => changed.transform(!_))
+        ),
         //      lastentries.map(it => datalist(
         //        id := "datalist-" + that.hashCode(),
         //        it.map(it => option(value := it)))),
@@ -75,14 +76,12 @@ object Fun {
         vbox(Todolist.model.aggregate.map(_.mapValues(rxTask))),
         label(Val(if (Todolist.model.aggregate.get.isEmpty) text("All done! :)") else text(""))))
 
-      vbox(gap(10),
+      vbox(gap(.01),
         vbox(
           label(text("DO TODOS! ")/*, drx.Network.localId*/),
-          sCommand(Todolist.addNewTodo, text("enter new todo here"))),
+          sCommand(Todolist.addNewTodo, promptText("enter new todo here"))),
 
-        hbox(gap(5),
-          vbox(todolist, width(.5)),
-          vbox(todolist, width(.5))),
+        hbox(gap(.01), vbox(todolist), vbox(todolist)),
 
         flow(
           label(text("There ")), todotext,

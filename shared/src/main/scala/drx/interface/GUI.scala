@@ -10,7 +10,7 @@ trait GUI[Element] {
   trait Mod { def applyTo(w: Element): Unit }
   trait Blueprint extends Mod {
     def render: Element
-    override def applyTo(w: Element): Unit = appendRaw(this.render, w)
+    override def applyTo(parent: Element): Unit = appendRaw(parent, this.render)
   }
 
   def getMarkedChildren(fc: Element): Seq[Element]
@@ -20,12 +20,12 @@ trait GUI[Element] {
   def isRooted(w: Element): Boolean
   def getParent(w: Element): Element
   def getChildren(w: Element): Seq[Element]
-  def appendRaw(w: Element, v: Element): Unit
-  def replaceRaw(w: Element, v: Element): Unit
+  def appendRaw(parent: Element, child: Element): Unit
+  def replaceRaw(old: Element, next: Element): Unit
   def removeRaw(w: Element): Unit
 
   def disabled(b: Boolean): Mod
-  def gap(i: Int): Mod
+  def gap(i: Double): Mod
   def color(c: String): Mod
   def width(w: Double): Mod
   def height(h: Double): Mod
@@ -48,8 +48,10 @@ trait GUI[Element] {
   //   Rx[Modifier] ==> Modifier
 
   implicit def tagToMod(sig: Val[Blueprint]): Mod = (parent: Element) => {
-    var oldelem: Element = label(text("{{init}}")).render
-    val sinkTag = sig.map(x => x.render).map { newelem =>
+    var oldelem: Element = label(text("{{inittag}}")).render
+    val sinkTag = sig.map { newmk =>
+      println("test " + newmk)
+      val newelem = newmk.render
       replace(oldelem, newelem)
       oldelem = newelem
     }
@@ -64,9 +66,7 @@ trait GUI[Element] {
   implicit def seqToMod[X <: Element](diffs: Val[TraversableOnce[(String, Blueprint)]]
                                      ): Mod = (parent: Element) => {
     val sinkDiff = diffs.map { diffmap =>
-      getChildren(parent).reverse foreach { // TODO why is reverse necessary?
-        case element: Element => remove(element)
-        case _ => }
+      getChildren(parent).reverse foreach remove // TODO why is reverse necessary?
       diffmap foreach { case (k, tag) =>
         val newelem = tag.render
         insertChild(parent, newelem) }
@@ -94,12 +94,12 @@ trait GUI[Element] {
   }
 
   def insertChild(parent: Element, elem: Element): Unit = {
-    val placeholder: Element = label(text("{{init}}")).render
+    val placeholder: Element = label(text("{{insert}}")).render
     appendRaw(parent, placeholder)
     replace(placeholder, elem)
   }
   def remove(elem: Element): Unit = {
-    val placeholder: Element = label(text("{{dele}}")).render
+    val placeholder: Element = label(text("{{delete}}")).render
     replace(elem, placeholder)
     removeRaw(placeholder)
   }
@@ -136,7 +136,7 @@ trait GUI[Element] {
 
     val rooted = isRooted(oldelem)
     if (rooted) foreachChildSink(oldelem)(_.forceStop()) // stop unrooted sinks
-    replaceRaw(newelem, oldelem) // note order of args: replaceChild(toInsert, toRemove)
+    replaceRaw(oldelem, newelem)
     if (rooted) foreachSink(newelem)(_.forceStart()) // start rooted sinks
 
     // why order stop, replace, start?
