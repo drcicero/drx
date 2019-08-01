@@ -40,13 +40,21 @@ object Fun {
       def addNewTodo(x: String): Unit = {
         val y = Task.mk(x)
         val rnd = ThreadLocalRandom.current().nextLong().toHexString
-        model.update(Seq(rnd -> Polarized(true, y)))
+        model.update(Seq(rnd -> Pos(y)))
       }
     }
 
+    println(Todolist.model.aggregate.get)
+    Todolist.addNewTodo("helo")
+    println(Todolist.model.aggregate.get)
+    Todolist.addNewTodo("fsih")
+    println(Todolist.model.aggregate.get)
+    Todolist.addNewTodo("covefe")
+    println(Todolist.model.aggregate.get)
+
     val rxTask: Task => Blueprint = Extras.lazyExtAttrForPull { that: Task =>
       val changeCtr = Val((that.title.get, that.done.get)).scan(0){ (state, ev) => state + 1 }
-      val changed = Var[Boolean](false)
+      val changed = Var(false)
       changed foreach (_ => Todolist.removeEmptyTodos())
       val lastentries = Val((changed.get, that.title.get)).scan(List[String]()){ (state, ev) => ev._2 :: state.take(10) }
 
@@ -65,14 +73,14 @@ object Fun {
     }
 
     def main(): Blueprint = {
-      val todotext = Todolist.text.map(x=>label(text(x)))
+      val todotext = label(Todolist.text.map(x=>text(x)))
       val textlen = Todolist.len.map(x=>label(text(x.toString)))
 
       // Val(Todolist.model.aggregate.get.mapValues(rxTask))
       // --> Todolist.model.aggregate.map(_.mapValues(rxTask))
       // --> Todolist.model.diffs.mapmapValues(rxTask)
 
-      val todolist = vbox(
+      val todolist = hbox(
         vbox(Todolist.model.aggregate.map(_.mapValues(rxTask))),
         label(Val(if (Todolist.model.aggregate.get.isEmpty) text("All done! :)") else text(""))))
 
@@ -81,7 +89,7 @@ object Fun {
           label(text("DO TODOS! ")/*, drx.Network.localId*/),
           sCommand(Todolist.addNewTodo, promptText("enter new todo here"))),
 
-        hbox(gap(.01), vbox(todolist), vbox(todolist)),
+        hbox(gap(.01), todolist, todolist),
 
         flow(
           label(text("There ")), todotext,

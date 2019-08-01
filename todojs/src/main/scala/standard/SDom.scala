@@ -80,15 +80,17 @@ object SDom {
     val sinkDiff = diffs.map { diffmap =>
       diffmap foreach { case (k, pol) =>
         val oldelem = map remove k
-        if (pol.polarity) {
-          val newelem = pol.content.render
-          map(k) = newelem
-          if (oldelem.isDefined)
-            replaceChild(parent, oldelem.get, newelem)
-          else
-            insertChild(parent, newelem)
-        } else if (oldelem.isDefined) {
-          removeChild(parent, oldelem.get)
+        pol match {
+          case Pos(content) =>
+            val newelem = content.render
+            map(k) = newelem
+            if (oldelem.isDefined)
+              replaceChild(parent, oldelem.get, newelem)
+            else
+              insertChild(parent, newelem)
+          case Neg(content) if (oldelem.isDefined) =>
+            removeChild(parent, oldelem.get)
+          case _ =>
         }
       }
     }
@@ -151,10 +153,10 @@ object SDom {
 
     val rooted = isRooted(parent)
     if (rooted)
-      foreachChildSink(oldelem)(_.forceStop()) // stop unrooted sinks
+      foreachChildSink(oldelem)(_.disable()) // stop unrooted sinks
     parent.replaceChild(newelem, oldelem) // note order of args: replaceChild(toInsert, toRemove)
     if (rooted)
-      foreachSink(newelem)(_.forceStart())     // start rooted sinks
+      foreachSink(newelem)(_.enable())     // start rooted sinks
     newelem.classList.remove("rx-building")
 
     // why order stop, replace, start?

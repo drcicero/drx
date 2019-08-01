@@ -56,7 +56,7 @@ trait GUI[Element] {
       oldelem = newelem
     }
     addSink(oldelem, sinkTag)
-    insertChild(parent, oldelem)
+    appendRaw(parent, oldelem)
   }
 
   implicit def modToMod(sig: Val[Mod]): Mod = (parent: Element) => {
@@ -80,13 +80,15 @@ trait GUI[Element] {
     val sinkDiff = diffs.map { diffmap =>
       diffmap foreach { case (k, pol) =>
         val oldelem = map remove k
-        if (pol.polarity) {
-          val newelem = pol.content.render
-          map(k) = newelem
-          if (oldelem.isDefined) replace(oldelem.get, newelem)
-          else insertChild(parent, newelem)
-        } else if (oldelem.isDefined) {
-          remove(oldelem.get)
+        pol match {
+          case Pos(content) =>
+            val newelem = content.render
+            map(k) = newelem
+            if (oldelem.isDefined) replace(oldelem.get, newelem)
+            else insertChild(parent, newelem)
+          case Neg(_) if oldelem.isDefined =>
+            remove(oldelem.get)
+          case _ =>
         }
       }
     }
@@ -135,9 +137,9 @@ trait GUI[Element] {
     }
 
     val rooted = isRooted(oldelem)
-    if (rooted) foreachChildSink(oldelem)(_.forceStop()) // stop unrooted sinks
+    if (rooted) foreachChildSink(oldelem)(_.disable()) // stop unrooted sinks
     replaceRaw(oldelem, newelem)
-    if (rooted) foreachSink(newelem)(_.forceStart()) // start rooted sinks
+    if (rooted) foreachSink(newelem)(_.enable())     // start rooted sinks
 
     // why order stop, replace, start?
   }

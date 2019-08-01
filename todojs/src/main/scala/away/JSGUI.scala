@@ -16,14 +16,12 @@ object JSGUI extends GUI[dom.Element] {
   override def replaceRaw(old: Element, next: Element): Unit = old.parentNode.replaceChild(next, old)
   override def removeRaw(w: Element): Unit = w.parentNode.removeChild(w)
 
-  override def textOf(w: Element): String = w match {
-    case w: dom.html.Input => w.value
-  }
+  override def textOf(w: Element): String = w match { case w: dom.html.Input => w.value }
 
   def style(s: String): Mod = w =>
     w.setAttribute("style", w.getAttribute("style") + "; " + s)
   override def gap(i: Double): Mod = style("gap:"+(i*100)+"%")
-  override def color(c: String): Mod = style("color:"+(c)+"%")
+  override def color(c: String): Mod = style("color:"+(c))
   override def width(i: Double): Mod = style("width:"+(i*100)+"%")
   override def height(h: Double): Mod = style("height:"+(h*100)+"%")
   override def callback(f: dom.Element => Unit): Mod = {
@@ -40,26 +38,21 @@ object JSGUI extends GUI[dom.Element] {
     case w: dom.html.Element => w.textContent = f
     case w => println(w, "text error")
   }
-  override def promptText(f: String): Mod = {
-    case w: dom.html.Input => w.placeholder = f
-  }
-  override def checked(f: Boolean): Mod = {
-    case w: dom.html.Input => w.checked = true
-  }
+  override def promptText(f: String): Mod = { case w: dom.html.Input => w.placeholder = f }
+  override def checked(f: Boolean): Mod = { case w: dom.html.Input => w.checked = f }
 
   var i = 0
-  private def createElement(string: String, ms: Mod*) = new Blueprint {
-    def render: Element = {
+  private def createElement(string: String, ms: Mod*): Blueprint = new Blueprint {
+    def render: dom.Element = {
       val d = dom.document.createElement(string)
-      ms.foreach { x => println(" " * i + d.outerHTML); i+=1; x.applyTo(d); i-=1 }
-      println(" " * i + "return " + d.outerHTML)
+      ms foreach(_.applyTo(d))
       d
     }
   }
   override def button(ms: Mod*): Blueprint = createElement("button", ms:_*)
   override def vbox(ms: Mod*): Blueprint = createElement("div", ms:_*)
   override def hbox(ms: Mod*): Blueprint = createElement("div",
-    Seq(style("display:flex;flex-direction:row;align-content:flex-start")) ++ ms:_*)
+    Seq(style("display:flex;flex-direction:row;align-content:stretch")) ++ ms:_*)
   override def flow(ms: Mod*): Blueprint = createElement("span",
     Seq(style("display:inline")) ++ ms:_*)
   override def label(ms: Mod*): Blueprint = createElement("span", ms:_*)

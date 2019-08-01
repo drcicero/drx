@@ -44,7 +44,7 @@ object SAppTodo {
     def addNewTodo(x: String): Unit = {
       val y = Task.mk(x)
       val rnd = ThreadLocalRandom.current().nextLong().toHexString
-      model.update(Seq(rnd -> Polarized(true, y)))
+      model.update(Seq(rnd -> Pos(y)))
     }
   }
 
@@ -86,7 +86,7 @@ object SAppTodo {
 
   val rxTask: Task => TypedTag[dom.Element] = Extras.lazyExtAttrForPull { that: Task =>
     val changeCtr = Val((that.title.get, that.done.get)).scan(0){ (state, ev) => state + 1 }
-    val changed = Var[Boolean](false)
+    val changed = Var(false)
     changed foreach (_ => Todolist.removeEmptyTodos())
     val lastentries = Val((changed.get, that.title.get)).scan(List[String]()){ (state, ev) => ev._2 :: state.take(10) }
 

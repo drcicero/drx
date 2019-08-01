@@ -1,16 +1,34 @@
 import javafx.application.Application
-import javafx.scene.layout.{HBox, VBox}
-import javafx.scene.Node
+import javafx.scene.layout.{HBox, StackPane, VBox}
+import javafx.scene.{Node, Scene}
 import javafx.stage.Stage
 import drx._
 import main.{Task, Todolist}
 import RxFxHelper._
 import drx.graph.{Rx, Val, Var}
 import RxFx.SignalToNode
+import javafx.geometry.Insets
+import javafx.scene.control.ScrollPane
 
 class AppTodo extends Application {
 
+  def startWithA(primaryStage: Stage, title: String, box: javafx.scene.Node): Unit = {
+    concreteplatform.storePrimaryStage(primaryStage)
+
+    val root = new StackPane()
+    root.setPadding(new Insets(10))
+    root.getChildren.add(new ScrollPane())
+    away.FXGUI.insertChild(root, box)
+    primaryStage.setTitle(title)
+    primaryStage.setScene(new Scene(root, 640, 480))
+    primaryStage.show()
+  }
+
   override def start(primaryStage: Stage): Unit = {
+    startWithA(primaryStage, "abstract pull todo js", drx.interface.Fun.mkATodoApp(away.FXGUI))
+  }
+
+  def xstart(primaryStage: Stage): Unit = {
     concreteplatform.storePrimaryStage(primaryStage)
     concreteplatform.fpost("test", "test")
 
