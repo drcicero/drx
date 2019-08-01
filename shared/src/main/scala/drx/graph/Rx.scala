@@ -1,7 +1,7 @@
 package drx.graph
 
 import drx.internals.EmptyValExc
-import drx.{Name, graph, internals, withInstant}
+import drx.{Name, internals, withInstant}
 
 import scala.util.{Success, Try}
 

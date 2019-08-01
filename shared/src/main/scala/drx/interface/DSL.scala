@@ -51,7 +51,7 @@ object DSL extends DSL {
   case class Neg[X](content: X) extends Polarized[X]
 
   final class VarMap[X] {
-    val diffs = SeqVar[(String, Polarized[X])]()
+    val diffs: SeqVar[(String, Polarized[X])] = SeqVar[(String, Polarized[X])]()
     val aggregate: Val[Map[String, X]] = diffs.scan(Map[String, X]())(VarMap.add[X])
     def sampleAsDelta: Seq[(String, Polarized[X])] = aggregate.sample.mapValues(x => Pos(x)).toSeq
     def update(delta: Seq[(String, Polarized[X])]): Unit = delta.foreach(diffs.set)
