@@ -81,15 +81,14 @@ object Fun {
       // --> Todolist.model.diffs.mapmapValues(rxTask)
 
       val todolist = hbox(
-        vbox(Todolist.model.aggregate.map(_.mapValues(rxTask))),
+        vbox(gap(10), Todolist.model.aggregate.map(_.mapValues(rxTask))),
         label(Val(if (Todolist.model.aggregate.get.isEmpty) text("All done! :)") else text(""))))
 
-      vbox(gap(.01),
-        vbox(
-          label(text("DO TODOS! ")/*, drx.Network.localId*/),
-          sCommand(Todolist.addNewTodo, promptText("enter new todo here"))),
+      vbox(gap(10),
+        label(text("DO TODOS! ")/*, drx.Network.localId*/),
+        sCommand(Todolist.addNewTodo, promptText("enter new todo here")),
 
-        hbox(gap(.01), todolist, todolist),
+        hbox(gap(10), todolist, todolist),
 
         flow(
           label(text("There ")), todotext,

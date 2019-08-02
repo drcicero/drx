@@ -6,6 +6,12 @@ import drx.interface.DSL.{Polarized, Val}
 import scala.collection.mutable
 import drx.interface.DSL._
 
+// Declarative.
+// An interesting property of GUI Elements is, that can only exist once per page!
+// This means we cannot pass them around like normal values as we wish. (referential transparency)
+// So we avoid them by postponing creating Elements to the latest possible time,
+// and mostly pass Blueprints around which describe how to build a node.
+
 trait GUI[Element] {
   trait Mod { def applyTo(w: Element): Unit }
   trait Blueprint extends Mod {
@@ -17,15 +23,16 @@ trait GUI[Element] {
   def mark(it: Element)
   def unmark(it: Element)
 
-  def isRooted(w: Element): Boolean
-  def getParent(w: Element): Element
+  //def isRooted(w: Element): Boolean
+  //def getParent(w: Element): Element
   def getChildren(w: Element): Seq[Element]
+
   def appendRaw(parent: Element, child: Element): Unit
   def replaceRaw(old: Element, next: Element): Unit
   def removeRaw(w: Element): Unit
 
   def disabled(b: Boolean): Mod
-  def gap(i: Double): Mod
+  def gap(i: Int): Mod
   def color(c: String): Mod
   def width(w: Double): Mod
   def height(h: Double): Mod
@@ -50,7 +57,6 @@ trait GUI[Element] {
   implicit def tagToMod(sig: Val[Blueprint]): Mod = (parent: Element) => {
     var oldelem: Element = label(text("{{inittag}}")).render
     val sinkTag = sig.map { newmk =>
-      println("test " + newmk)
       val newelem = newmk.render
       replace(oldelem, newelem)
       oldelem = newelem
@@ -124,31 +130,35 @@ trait GUI[Element] {
     if (sinks.isEmpty) unmark(it)
   }
 
-  private def foreachChildSink(fc: Element)(f: Val[_] => Unit): Unit =
-    getMarkedChildren(fc).flatMap(sinkMap.get(_).get).foreach(f)
-  private def foreachSink(fc: Element)(f: Val[_] => Unit): Unit =
-    (getMarkedChildren(fc).flatMap(sinkMap.get(_).get) ++
-      sinkMap.get(fc).getOrElse(mutable.Set())).foreach(f)
+//  private def foreachChildSink(fc: Element)(f: Val[_] => Unit): Unit =
+//    getMarkedChildren(fc).flatMap(sinkMap.get(_).get).foreach(f)
+//  private def foreachSink(fc: Element)(f: Val[_] => Unit): Unit =
+//    (getMarkedChildren(fc).flatMap(sinkMap.get(_).get) ++
+//      sinkMap.get(fc).getOrElse(mutable.Set())).foreach(f)
 
-  def replace(oldelem: Element, newelem: Element): Unit = {
+  private var oldo = Set[Val[_]]()
+  def init(top: Element): Unit = {
+    postTxCalls.append { () =>
+      val newo = getMarkedChildren(top).flatMap(sinkMap.get(_).get).toSet
+      (oldo -- newo).foreach(_.disable())
+      (newo -- oldo).foreach(_.enable())
+      oldo = newo
+    }
+  }
+
+  def replace(oldelem: Element, newelem: Element): Unit = transact {
     sinkMap.get(oldelem).getOrElse(Seq()).foreach { sink => // transfer sinks from old to new elem
       remSink(oldelem, sink)
       addSink(newelem, sink)
     }
 
-    val rooted = isRooted(oldelem)
-    if (rooted) foreachChildSink(oldelem)(_.disable()) // stop unrooted sinks
+    //val rooted = isRooted(oldelem)
+    //if (rooted) foreachChildSink(oldelem)(_.disable()) // stop unrooted sinks
     replaceRaw(oldelem, newelem)
-    if (rooted) foreachSink(newelem)(_.enable())     // start rooted sinks
+    //if (rooted) foreachSink(newelem)(_.enable())       // start rooted sinks
 
     // why order stop, replace, start?
   }
-
-  // Declarative.
-  // An interesting property of Dom.Node is, that they can only have one parent!
-  // This means we cannot pass them around like normal values as we wish.
-  // So we avoid them by postponing renderind to dom.Nodes to the latest possible time,
-  // and mostly pass TypedTags around which describe how to build a node.
 
   def sFullName(labelText: Var[String], texts: Var[String]): Blueprint = {
     val clicked = Var(0)

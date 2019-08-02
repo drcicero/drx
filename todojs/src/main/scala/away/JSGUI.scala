@@ -20,7 +20,7 @@ object JSGUI extends GUI[dom.Element] {
 
   def style(s: String): Mod = w =>
     w.setAttribute("style", w.getAttribute("style") + "; " + s)
-  override def gap(i: Double): Mod = style("gap:"+(i*100)+"%")
+  override def gap(i: Int): Mod = style("gap:"+i+"px")
   override def color(c: String): Mod = style("color:"+(c))
   override def width(i: Double): Mod = style("width:"+(i*100)+"%")
   override def height(h: Double): Mod = style("height:"+(h*100)+"%")

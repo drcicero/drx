@@ -1,47 +1,52 @@
 package drx.interface
 
-object DSL extends DSL {
+import scala.collection.mutable
+
+object DSL {
   // proxy
-  var innerdsl: DSL = _
-  override def RawVar[I,O](init: Seq[I], f: Seq[I] => O): DSL.RawVar[I,O] = innerdsl.RawVar(init, f)
-  override def Val[X](e: => X): Val[X] = innerdsl.Val(e)
-  override protected def forceStep(): Unit = innerdsl.forceStep()
+  var innerdsl: DSLTrait = _
+  def RawVar[I,O](init: Seq[I], f: Seq[I] => O): DSL.RawVar[I,O] = innerdsl.RawVar(init, f)
+  def Val[X](e: => X): Val[X] = innerdsl.Val(e)
 
   // sugar
-
   type Var[X] = RawVar[X,X]
   type SeqVar[X] = RawVar[X,Seq[X]]
 
   def Var[X](e: => X): Var[X] = innerdsl.RawVar[X,X](Seq(e), _.last)
   def SeqVar[X](): SeqVar[X] = innerdsl.RawVar(Seq(), x => x)
 
-  var transactionActive = 0
+  private var transactionActive = 0
+  var postTxCalls: mutable.Buffer[() => Unit] = mutable.Buffer()
   def transact[X](f: => X): X = {
     transactionActive += 1
     val x = f
-    if (transactionActive == 1) forceStep()
+    if (transactionActive == 1) innerdsl.forceStep()
     transactionActive -= 1
     x
   }
 
-  abstract class Val[+O](dsl: DSL) {
+  abstract class Val[+O](dsl: DSLTrait) {
     def sample: O
 
     def get: O
     def enable(): Unit
     def disable(): Unit
 
-    def scan[Y](init: Y)(f: (Y, O) => Y): Val[Y]
-    def zip[Y](y: Val[Y]): Val[(O,Y)] = dsl.Val((get, y.get))
-    def map[Y](f: O => Y): Val[Y] = dsl.Val(f(get))
+    def zip[Y](y: Val[Y]): Val[(O,Y)] = Val((get, y.get))
+    def map[Y](f: O => Y): Val[Y] = Val(f(get))
     def foreach(f: O => Unit): Val[Unit] = {
-      val result = dsl.Val(f(get))
+      val result = Val(f(get))
       result.enable() // leaky!
       result
     }
+    def scan[Y](init: Y)(f: (Y, O) => Y): Val[Y] = {
+      var x: O = get
+      var y: Y = init
+      Val { val newx = get; if (x != newx) { x = newx; y = f(y, x) }; y }
+    }
   }
 
-  abstract class RawVar[I,O](reduce: Seq[I]=>O, dsl: DSL) extends Val[O](dsl) {
+  abstract class RawVar[I,O](reduce: Seq[I]=>O, dsl: DSLTrait) extends Val[O](dsl) {
     def set(newValue: I): Unit
     def transform(f: O => I): Unit = { val x = f(get); set(x) }
   }
@@ -76,8 +81,8 @@ object DSL extends DSL {
   }
 }
 
-trait DSL {
+trait DSLTrait {
   def RawVar[I,O](init: Seq[I], f: Seq[I] => O): DSL.RawVar[I,O] // events
   def Val[O](e: => O): DSL.Val[O] // signals
-  protected def forceStep(): Unit
+  protected[drx] def forceStep(): Unit
 }

@@ -2,20 +2,17 @@ package away
 
 import scala.collection.JavaConverters._
 import drx.interface.GUI
-import javafx.application.Application
 import javafx.scene.layout.{FlowPane, HBox, Pane, VBox}
 import javafx.scene.{Node, Parent}
 import javafx.stage.Stage
-import drx._
-import main.{Task, Todolist}
-import drx.graph.{Rx, Val, Var}
+import drx.concreteplatform
 import javafx.scene.control.{Button, CheckBox, Label, TextField}
 
 import scala.collection.mutable
 
 object FXGUI extends GUI[Node] {
-  override def isRooted(w: Node): Boolean = true
-  override def getParent(w: Node): Node = w.getParent
+  //override def isRooted(w: Node): Boolean = true
+  //override def getParent(w: Node): Node = w.getParent
   override def getChildren(w: Node): Seq[Node] = w.asInstanceOf[Parent].getChildrenUnmodifiable.asScala
   override def appendRaw(parent: Node, child: Node): Unit = parent.asInstanceOf[Pane].getChildren.add(child)
   override def replaceRaw(old: Node, next: Node): Unit = {
@@ -27,8 +24,11 @@ object FXGUI extends GUI[Node] {
 
   override def textOf(w: Node): String = w match { case w: TextField => w.getText() }
 
-  def style(s: String): Mod = w => () // w.setAttribute("style", w.getAttribute("style") + "; " + s)
-  override def gap(i: Double): Mod = w => () //
+  override def gap(i: Int): Mod = {
+    case w: VBox => w.setSpacing(i)
+    case w: HBox => w.setSpacing(i)
+    case w => println("gap error")
+  }
   override def color(c: String): Mod = w => () //
   override def width(i: Double): Mod = w => w.maxWidth(i*100)
   override def height(h: Double): Mod = w => w.maxHeight(i*100)
@@ -68,9 +68,7 @@ object FXGUI extends GUI[Node] {
   override def input(ms: Mod*): Blueprint = createElement(new TextField(), ms:_*)
   override def checkbox(ms: Mod*): Blueprint = createElement(new CheckBox(), ms :_*)
 
-  private val DATA_IS_REACTIVE = "data-is-reactive"
   private val remember = concreteplatform.WeakMap[Node, Boolean]()
-
   def getMarkedChildren(parent: Node): Seq[Node] = {
     val lst = mutable.Buffer[Node]()
     parent match {

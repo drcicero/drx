@@ -10,7 +10,7 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.unmarshalling.Unmarshal
 import akka.stream.ActorMaterializer
 
-import drx.{AbstractWeakMap, AbstractWeakSet, ScalaWeakMap, abstractplatform}
+import drx.{AbstractWeakSet, ScalaWeakMap, abstractplatform}
 
 import javafx.util.Duration
 import javafx.animation.{KeyFrame, Timeline}
@@ -80,7 +80,5 @@ trait platform extends abstractplatform {
   }
 
   private var stage: Stage = _
-  def storePrimaryStage(primaryStage: Stage) {
-    stage = primaryStage
-  }
+  def storePrimaryStage(primaryStage: Stage) { stage = primaryStage }
 }
