@@ -5,24 +5,18 @@ object Extras {
   /* allow folds */
   def lazyExtAttr[X,Y](func: X => Y, name: String=""): X => Y = {
     val cache = concreteplatform.WeakMap[X, Y]()
-
     x: X => {
-//      var neednew = ""
-      val tmp = cache.get(x).getOrElse(internals.activeRx.withValue(None) {
-//        neednew = " (new)"
+      cache.get(x).getOrElse(internals.activeRx.withValue(None) {
         val tmp = func(x)
         cache.set(x, tmp)
         tmp
       })
-//      println("try " + name +"-"+ cache.hashCode +" ["+ x.getClass +"@"+ x.hashCode + "] = " + tmp.getClass + "@" + tmp.hashCode +" "+ tmp + neednew)
-      tmp
     }
   }
 
   /* allow folds */
   def lazyExtAttrForPull[X,Y](func: X => Y, name: String=""): X => Y = {
     val cache = concreteplatform.WeakMap[X, Y]()
-
     x: X => cache.get(x).getOrElse {
       val tmp = func(x)
       cache.set(x, tmp)

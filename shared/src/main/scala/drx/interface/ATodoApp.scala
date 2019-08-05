@@ -5,7 +5,7 @@ import java.util.concurrent.ThreadLocalRandom
 import drx.Extras
 import drx.interface.DSL._
 
-object Fun {
+object ATodoApp {
   def mkATodoApp[X](GUI: drx.interface.GUI[X]): X = {
     import GUI._
     drx.interface.DSL.innerdsl = drx.pull.pullDSL

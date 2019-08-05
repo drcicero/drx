@@ -16,7 +16,7 @@ object GCHelper {
   }
   def getHisto3: String =
     invokeNoStringArgumentsCommand("gcClassHistogram") split "\n" filter
-      (x => x.contains("drx.graph") && !x.contains("$")) mkString "\n"
+      (x => x.contains("drx") && !x.contains("$")) mkString "\n"
   def parseHisto(str: String): Map[String, String] =
     (str split "\n" map { x: String => val Array(a,b,c,d) = x split "\t"; d -> b }).toMap
 

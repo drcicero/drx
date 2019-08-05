@@ -1,59 +1,64 @@
-import java.nio.file.{Files, Paths}
+import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Path, Paths}
 
-import javafx.animation.KeyFrame
-import javafx.animation.Timeline
-import javafx.util.Duration
+import javafx.animation.{KeyFrame, Timeline}
+
+import scala.collection.JavaConverters._
 import javafx.application.Application
-import javafx.event.{ActionEvent, EventHandler}
 import javafx.geometry.Insets
 import javafx.scene.Scene
-import javafx.scene.layout.{HBox, StackPane, VBox}
+import javafx.scene.layout.{StackPane, VBox}
 import javafx.stage.Stage
 import javafx.scene.chart.{LineChart, NumberAxis, XYChart}
-import javafx.scene.image.Image
 import javafx.scene.image.ImageView
-
-object MonitorMain {
-  def main(args: Array[String]): Unit =
-  Application.launch(classOf[Monitor], args:_*)
-}
+import javafx.util.Duration
 
 class Monitor extends Application {
 
+  private def after[X](millis: Double)(func: () => X): Unit = {
+    new Timeline(new KeyFrame(Duration.millis(millis), _ => func())).play()
+  }
+
+  def parseHisto(str: String): Map[String, Int] =
+    (str.strip() split "\n" map { x: String =>
+      println((x split "  +").toSeq)
+      val Array(_, amount, bytes, classname) = x split "  +"
+      classname.strip() -> amount.strip().toInt
+    }).toMap
+
   override def start(primaryStage: Stage): Unit = {
-    val image = new Image("file:///" + Paths.get("debuggraphs/graph1.dot.png").toAbsolutePath.toString)
-    val iv1 = new ImageView()
-    iv1.setImage(image)
+    val imageView = new ImageView()
 
-    def dolater(ms: Int)(f: EventHandler[ActionEvent]): Unit = {
-      val timeline = new Timeline(new KeyFrame(Duration.millis(ms), f))
-      timeline.play()
-    }
-
-    def f(): Unit = {
-      dolater(1000) { _ =>
-        val mod = Files.getLastModifiedTime(Paths.get("debuggraphs/graph1.dot.png"))
-        println(mod)
-        f()
+    def onexists(file: Path)(doit: Path => Path): Unit = {
+      after(1000) { () =>
+        onexists(if (Files.exists(file)) doit(file) else file)(doit)
       }
     }
-    f()
+
+//    onexists(Paths.get("debuggraphs/graph1.dot.png")) { file =>
+//      val image = new Image("file:///" + file.toAbsolutePath.toString)
+//      imageView.setImage(image)
+//      file
+//    }
 
     //defining a series
-    val series = new XYChart.Series[Number, Number]
-    series.setName("Memory [MB]")
-    series.getData.add(new XYChart.Data(1, 23))
-    series.getData.add(new XYChart.Data(2, 14))
-    series.getData.add(new XYChart.Data(3, 15))
-    series.getData.add(new XYChart.Data(4, 24))
-    series.getData.add(new XYChart.Data(5, 34))
-    series.getData.add(new XYChart.Data(6, 36))
-    series.getData.add(new XYChart.Data(7, 22))
-    series.getData.add(new XYChart.Data(8, 45))
-    series.getData.add(new XYChart.Data(9, 43))
-    series.getData.add(new XYChart.Data(10, 17))
-    series.getData.add(new XYChart.Data(11, 29))
-    series.getData.add(new XYChart.Data(12, 25))
+    val varsSeries = new XYChart.Series[Number, Number]
+    varsSeries.setName("RawVars")
+    val valsSeries = new XYChart.Series[Number, Number]
+    valsSeries.setName("Vals")
+
+    val newest = Files.list(Paths.get("debuggraphs")).iterator().asScala.toSeq
+      .filter(_.toString.startsWith("debuggraphs/histo-"))
+      .maxBy(Files.getLastModifiedTime(_))
+    val id = newest.toString.substring(18, newest.toString.indexOf('-', 18))
+    var j = 1
+    onexists(Paths.get(s"debuggraphs/histo-$id-$j.txt")) { file =>
+      j += 1
+      val map = parseHisto(Files.readString(file))
+      varsSeries.getData.add(new XYChart.Data(j, map.getOrElse("drx.pull.PRawVar", 0).asInstanceOf[Int]))
+      valsSeries.getData.add(new XYChart.Data(j, map.getOrElse("drx.pull.PVal", 0).asInstanceOf[Int]))
+      Paths.get(s"debuggraphs/histo-$id-$j.txt")
+    }
 
     val xAxis = new NumberAxis
     val yAxis = new NumberAxis
@@ -61,11 +66,12 @@ class Monitor extends Application {
 
     val lineChart = new LineChart[Number, Number](xAxis, yAxis)
     lineChart.setTitle("Memory over Time")
-    lineChart.getData.add(series)
+    lineChart.getData.add(varsSeries)
+    lineChart.getData.add(valsSeries)
 
     val root = new StackPane()
     root.setPadding(new Insets(10))
-    root.getChildren.add(new VBox(10, lineChart, iv1))
+    root.getChildren.add(new VBox(10, lineChart, imageView))
     primaryStage.setTitle("AppTodo")
     primaryStage.setScene(new Scene(root, 640, 480))
     primaryStage.show()

@@ -22,7 +22,7 @@ object Main {
         button(onclick:={ () => standard.SAppTodo.main() }, "pull todo js"),
         button(onclick:={ () => away.JSGUI.replace(
           dom.document.body.lastElementChild,
-          drx.interface.Fun.mkATodoApp(away.JSGUI)) }, "abstract pull todo js")
+          drx.interface.ATodoApp.mkATodoApp(away.JSGUI)) }, "abstract pull todo js")
       ).render)
   }
 

@@ -41,7 +41,7 @@ class AppTodo extends Application {
   }
 
   override def start(primaryStage: Stage): Unit = {
-    startWithA(primaryStage, "abstract pull todo js", drx.interface.Fun.mkATodoApp(away.FXGUI))
+    startWithA(primaryStage, "abstract pull todo js", drx.interface.ATodoApp.mkATodoApp(away.FXGUI))
   }
 
 }

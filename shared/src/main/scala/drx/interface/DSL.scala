@@ -1,5 +1,7 @@
 package drx.interface
 
+import drx.concreteplatform
+
 import scala.collection.mutable
 
 object DSL {
@@ -20,7 +22,10 @@ object DSL {
   def transact[X](f: => X): X = {
     transactionActive += 1
     val x = f
-    if (transactionActive == 1) innerdsl.forceStep()
+    if (transactionActive == 1) {
+      innerdsl.forceStep()
+      concreteplatform.writeToDisk("TX")
+    }
     transactionActive -= 1
     x
   }
