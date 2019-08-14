@@ -7,6 +7,7 @@ import javafx.scene.{Node, Parent}
 import javafx.stage.Stage
 import drx.concreteplatform
 import javafx.scene.control.{Button, CheckBox, Label, TextField}
+import javafx.scene.text.{Text, TextFlow}
 
 import scala.collection.mutable
 
@@ -47,6 +48,7 @@ object FXGUI extends GUI[Node] {
     case w: Button => w.setText(f)
     case w: TextField => w.setText(f)
     case w: Label => w.setText(f)
+    case w: Text => w.setText(f)
     case w => println(w, "text error")
   }
   override def promptText(f: String): Mod = { case w: TextField => w.setPromptText(f) }
@@ -63,8 +65,8 @@ object FXGUI extends GUI[Node] {
   override def button(ms: Mod*): Blueprint = createElement(new Button(), ms:_*)
   override def vbox(ms: Mod*): Blueprint = createElement(new VBox(), ms:_*)
   override def hbox(ms: Mod*): Blueprint = createElement(new HBox(), ms:_*)
-  override def flow(ms: Mod*): Blueprint = createElement(new FlowPane(), ms:_*)
-  override def label(ms: Mod*): Blueprint = createElement(new Label(), ms:_*)
+  override def flow(ms: Mod*): Blueprint = createElement(new TextFlow(), ms:_*)
+  override def label(ms: Mod*): Blueprint = createElement(new Text(), ms:_*)
   override def input(ms: Mod*): Blueprint = createElement(new TextField(), ms:_*)
   override def checkbox(ms: Mod*): Blueprint = createElement(new CheckBox(), ms :_*)
 

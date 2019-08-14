@@ -5,10 +5,30 @@ import java.util.concurrent.ThreadLocalRandom
 import drx.Extras
 import drx.interface.DSL._
 
+import scala.collection.mutable
+
 object ATodoApp {
+  drx.interface.DSL.innerdsl = drx.pull.pullDSL
+
+  object globaly {
+    val tables: mutable.Map[Class[_], mutable.Set[Any]] = mutable.Map()
+    def getAll[C: reflect.ClassTag]: mutable.Set[C] = tables.getOrElseUpdate(implicitly[reflect.ClassTag[C]].runtimeClass, { mutable.Set() }).asInstanceOf[mutable.Set[C]]
+  }
+  class Varying[This: reflect.ClassTag] { self: This =>
+    globaly.getAll[This].add(this)
+    def Var[X](init: X) = drx.interface.DSL.Var(init)
+  }
+  final class Tasky(_id: String, _done: Boolean) extends Varying[Tasky] {
+    val id = Var(_id)
+    val done = Var(_done)
+  }
+  final class Toast(_id: String, _done: Boolean) extends Varying[Toast] {
+    val id = Var(_id)
+    val done = Var(_done)
+  }
+
   def mkATodoApp[X](GUI: drx.interface.GUI[X]): X = {
     import GUI._
-    drx.interface.DSL.innerdsl = drx.pull.pullDSL
 
     case class Task(title: Var[String], done: Var[Boolean]) {
       val folded: Val[Int] = title.map(_=>1) // .scan(0)((state, event) => state + 1) // TODO
@@ -24,7 +44,7 @@ object ATodoApp {
     }
 
     object Todolist {
-      var todoTextColor: Var[String] = Var("green")
+      val todoTextColor: Var[String] = Var("green")
 
       val model: VarMap[Task] = VarMap()
 

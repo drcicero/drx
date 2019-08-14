@@ -9,8 +9,8 @@ import scala.scalajs.js
 
 object JSGUI extends GUI[dom.Element] {
 
-  override def isRooted(w: Element): Boolean = dom.document.body.asInstanceOf[js.Dynamic].contains(w).asInstanceOf[Boolean]
-  override def getParent(w: Element): Element = w.parentNode.asInstanceOf[Element]
+  //override def isRooted(w: Element): Boolean = dom.document.body.asInstanceOf[js.Dynamic].contains(w).asInstanceOf[Boolean]
+  //override def getParent(w: Element): Element = w.parentNode.asInstanceOf[Element]
   override def getChildren(w: Element): Seq[Element] = (0 until w.childElementCount).map(w.children.item)
   override def appendRaw(parent: Element, child: Element): Unit = parent.appendChild(child)
   override def replaceRaw(old: Element, next: Element): Unit = old.parentNode.replaceChild(next, old)
