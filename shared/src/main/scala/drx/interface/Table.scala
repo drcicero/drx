@@ -17,7 +17,7 @@ final class VarMap[X <: Owner] extends Owner {
   def sampleAsDelta: Seq[(String, Polarized[X])] = aggregate.sample.mapValues(x => Pos(x)).toSeq
   def update(delta: Seq[(String, Polarized[X])]): Unit = delta.foreach(diffs.set)
   def remove(delta: Seq[String]): Unit = { val tmp = aggregate.sample; update(delta.map(k => (k, Neg(tmp(k))))) }
-  def keep(func: X => Boolean): Unit = remove(aggregate.sample.filter(x => func(x._2)).keys.toSeq)
+  def filterInPlace(func: X => Boolean): Unit = remove(aggregate.sample.filter(x => func(x._2)).keys.toSeq)
 }
 
 object VarMap {

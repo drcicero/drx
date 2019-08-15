@@ -13,6 +13,7 @@ import drx.interface.DSL._
 trait GUI[Element] {
   trait Mod { def applyTo(w: Element): Unit }
   def modGroup(ms: Mod*): Mod = w => ms.foreach(m => m.applyTo(w))
+  def tagGroup(ms: Blueprint*): Mod = w => ms.foreach {m => getChildren(w).reverse foreach remove; m.applyTo(w)}
 
   trait Blueprint extends Mod {
     def render: Element
@@ -65,12 +66,8 @@ trait GUI[Element] {
     appendRaw(parent, oldelem)
   }
 
-  implicit def modToMod(sig: Val[Mod]): Mod = (parent: Element) => {
-    val sinkMod = sig.map { mod =>
-      mod.applyTo(parent)
-    }
-    addSink(parent, sinkMod)
-  }
+  implicit def modToMod(sig: Val[Mod]): Mod = (parent: Element) =>
+    addSink(parent, sig.map(_.applyTo(parent)))
 
   implicit def seqToMod[X <: Element](diffs: Val[TraversableOnce[Blueprint]]
                                      ): Mod = (parent: Element) => {
@@ -114,7 +111,7 @@ trait GUI[Element] {
     removeRaw(elem)
   }
 
-  private val sinkMap = concreteplatform.WeakMap[Element, mutable.Set[Val[_]]]().asInstanceOf[ScalaWeakMap[Element, mutable.Set[Val[_]]]]
+  private val sinkMap = concreteplatform.WeakMap[Element, mutable.Set[Val[_]]]() // .asInstanceOf[ScalaWeakMap[Element, mutable.Set[Val[_]]]]
   private def addSink(it: Element, obs: Val[_]): Unit = {
     val sinks = sinkMap.get(it).getOrElse {
       val tmp = mutable.Set[Val[_]]()
@@ -185,12 +182,10 @@ trait GUI[Element] {
     callback { w => sig.set(textOf(w)) },
   )
 
-  def sCommand(sig: String => Unit, m: Mod*): Blueprint = input((Seq[Mod](
-    callback { w =>
-      transact(sig(textOf(w)))
-      text("").applyTo(w)
-    },
-  )++ m):_*)
+  def enterTextClear(sig: String => Unit): Mod = callback { w =>
+    transact(sig(textOf(w)))
+    text("").applyTo(w)
+  }
 
 //  def sClock(): Widget = {
 //    val clock = Var(scalajs.js.Date())

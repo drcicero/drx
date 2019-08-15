@@ -16,8 +16,8 @@ object ATodoApp {
     val todoTextColor: Var[String] = Var("green")
 
     // events
-    def removeEmptyTodos(): Unit = Table.getRaw[Todo].keep(_.title.sample.isEmpty)
-    def removeDoneTodos(): Unit = Table.getRaw[Todo].keep(_.done.sample)
+    def removeEmptyTodos(): Unit = Table.getRaw[Todo].filterInPlace(_.title.sample.isEmpty)
+    def removeDoneTodos(): Unit = Table.getRaw[Todo].filterInPlace(_.done.sample)
     def addNewTodo(x: String): Unit = transact { new Todo(x, false) } // TODO how to ensure new is transacted?
 
     // derivatives
@@ -44,7 +44,7 @@ object ATodoApp {
     drx.concreteplatform.after(2000) { () => doit(0) }
 
     // extension
-    val rxTask = extend { implicit that: Todo =>
+    val uiTask = extend { implicit that: Todo =>
       // TODO Val( ... that ... ) produce memory leaks? (but equal map expression does not!)
       val zip         = that.title.zip(that.done)
       val changeCtr   = zip.scan(0){ (state, ev) => state + 1 }
@@ -70,27 +70,27 @@ object ATodoApp {
       )
     }
 
-    // Val(Todolist.model.aggregate.get.mapValues(rxTask))
-    // --> Todolist.model.aggregate.map(_.mapValues(rxTask))
-    // --> Todolist.model.diffs.mapmapValues(rxTask)
+    // Val(Todolist.model.aggregate.get.mapValues(uiTask))
+    // --> Todolist.model.aggregate.map(_.mapValues(uiTask))
+    // --> Todolist.model.diffs.mapmapValues(uiTask)
 
     // gui
     def main(): Blueprint = {
-      val uitext = label(todotext.map(text(_)))
-      val uilen = label(todolen.map(x => text(x.toString)))
-
-      val uilist = hbox(
-        vbox(gap(10), getBag[Todo].map(_.map(rxTask)),
-        label(getBag[Todo].map(x => text(if (x.isEmpty) "All done! :)" else "")))))
+      val uitxt: Blueprint = label(todotext.map(text(_)))
+      val uilen: Blueprint = label(todolen.map(x => text(x.toString)))
+      val uilist: Val[Seq[Blueprint]] = getBag[Todo].map { lst =>
+        if (lst.isEmpty) Seq(label(text("All done! :)")))
+        else lst.map(uiTask).toSeq }
+      val uiwrap = vbox(gap(10), uilist)
 
       vbox(gap(10),
         label(text("DO TODOS! ")),
-        sCommand(addNewTodo, promptText("enter new todo here")),
+        input(enterTextClear(addNewTodo), promptText("enter new todo here")),
 
-        hbox(gap(10), uilist, uilist),
+        hbox(gap(10), uiwrap, uiwrap),
 
-        flow(label(text("There ")), uitext,
-          label(text(" left, with a total description length of ")), uilen,
+        flow(label(text("There are ")), uitxt,
+          label(text(" todos left, with a letter total of ")), uilen,
           label(text("."))),
 
         button(callback(_ => removeDoneTodos()), text("remove all done todos"),
