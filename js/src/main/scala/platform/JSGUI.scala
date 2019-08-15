@@ -1,11 +1,9 @@
-package away
+package platform
 
 import drx.interface.GUI
 import org.scalajs.dom
 import org.scalajs.dom.Element
 import org.scalajs.dom.html.Input
-
-import scala.scalajs.js
 
 object JSGUI extends GUI[dom.Element] {
 
@@ -63,7 +61,7 @@ object JSGUI extends GUI[dom.Element] {
   private val DATA_IS_REACTIVE = "data-is-reactive"
   override def getMarkedChildren(fc: Element): Seq[Element] = {
     val list = fc.querySelectorAll("["+DATA_IS_REACTIVE+"]")
-    (0 until list.length).map { i => list.item(i) }.collect { case x: Element => x }
+    (0 until list.length).map(list.item).collect { case x: Element => x }
   }
   override def mark(it: Element): Unit = it.setAttribute(DATA_IS_REACTIVE, "true")
   override def unmark(it: Element): Unit = it.removeAttribute(DATA_IS_REACTIVE)

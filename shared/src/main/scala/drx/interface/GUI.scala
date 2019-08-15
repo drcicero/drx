@@ -1,9 +1,7 @@
 package drx.interface
 
-import drx.concreteplatform
-import drx.interface.DSL.{Polarized, Val}
-
 import scala.collection.mutable
+import drx.{ScalaWeakMap, concreteplatform}
 import drx.interface.DSL._
 
 // Declarative.
@@ -14,6 +12,8 @@ import drx.interface.DSL._
 
 trait GUI[Element] {
   trait Mod { def applyTo(w: Element): Unit }
+  def modGroup(ms: Mod*): Mod = w => ms.foreach(m => m.applyTo(w))
+
   trait Blueprint extends Mod {
     def render: Element
     override def applyTo(parent: Element): Unit = appendRaw(parent, this.render)
@@ -66,14 +66,17 @@ trait GUI[Element] {
   }
 
   implicit def modToMod(sig: Val[Mod]): Mod = (parent: Element) => {
-    addSink(parent, sig.map(_.applyTo(parent)))
+    val sinkMod = sig.map { mod =>
+      mod.applyTo(parent)
+    }
+    addSink(parent, sinkMod)
   }
 
-  implicit def seqToMod[X <: Element](diffs: Val[TraversableOnce[(String, Blueprint)]]
+  implicit def seqToMod[X <: Element](diffs: Val[TraversableOnce[Blueprint]]
                                      ): Mod = (parent: Element) => {
     val sinkDiff = diffs.map { diffmap =>
       getChildren(parent).reverse foreach remove // TODO why is reverse necessary?
-      diffmap foreach { case (k, tag) =>
+      diffmap foreach { tag =>
         val newelem = tag.render
         insertChild(parent, newelem) }
     }
@@ -107,13 +110,11 @@ trait GUI[Element] {
     replace(placeholder, elem)
   }
   def remove(elem: Element): Unit = {
-    val placeholder: Element = label(text("{{delete}}")).render
-    replace(elem, placeholder)
-    removeRaw(placeholder)
+    getSinks(elem).foreach { case (elem, sink) => remSink(elem, sink) }
+    removeRaw(elem)
   }
 
-  private val sinkMap = concreteplatform.WeakMap[Element, mutable.Set[Val[_]]]()
-
+  private val sinkMap = concreteplatform.WeakMap[Element, mutable.Set[Val[_]]]().asInstanceOf[ScalaWeakMap[Element, mutable.Set[Val[_]]]]
   private def addSink(it: Element, obs: Val[_]): Unit = {
     val sinks = sinkMap.get(it).getOrElse {
       val tmp = mutable.Set[Val[_]]()
@@ -123,7 +124,6 @@ trait GUI[Element] {
     }
     sinks += obs
   }
-
   private def remSink(it: Element, obs: Val[_]): Unit = {
     val sinks = sinkMap.get(it).get
     sinks -= obs
@@ -135,16 +135,11 @@ trait GUI[Element] {
 //  private def foreachSink(fc: Element)(f: Val[_] => Unit): Unit =
 //    (getMarkedChildren(fc).flatMap(sinkMap.get(_).get) ++
 //      sinkMap.get(fc).getOrElse(mutable.Set())).foreach(f)
+  def getSinks(elem: Element): Set[(Element, Val[_])] =
+    getMarkedChildren(elem).flatMap(x => sinkMap.get(x).getOrElse(None.toIterable).map(y => (x, y))).toSet
 
-  private var oldo = Set[Val[_]]()
-  def init(top: Element): Unit = {
-    postTxCalls.append { () =>
-      val newo = getMarkedChildren(top).flatMap(sinkMap.get(_).get).toSet
-      (oldo -- newo).foreach(_.disable())
-      (newo -- oldo).foreach(_.enable())
-      oldo = newo
-    }
-  }
+  def init(top: Element): Unit =
+    getEnableds.append { () => getSinks(top).map(_._2) }
 
   def replace(oldelem: Element, newelem: Element): Unit = transact {
     sinkMap.get(oldelem).getOrElse(Seq()).foreach { sink => // transfer sinks from old to new elem
@@ -160,44 +155,41 @@ trait GUI[Element] {
     // why order stop, replace, start?
   }
 
-  def sFullName(labelText: Var[String], texts: Var[String]): Blueprint = {
-    val clicked = Var(0)
-    val first   = Var("")
-    val last    = Var("")
-    clicked.foreach { _ => first.set(""); last.set("") }
-    val full  = first.zip(last)
-      .map {case (f: String, l: String) => f +" "+ l }
-    clicked.foreach(x => texts set full.sample)
+  // TODO wrap use blueprint as owner?
+//  def sFullName(labelText: Var[String], texts: Var[String]): Blueprint = {
+//    val clicked = Var(0)
+//    val first   = Var("")
+//    val last    = Var("")
+//    clicked.foreach { _ => first.set(""); last.set("") }
+//    val full  = first.zip(last)
+//      .map {case (f: String, l: String) => f +" "+ l }
+//    clicked.foreach(x => texts set full.sample)
+//
+//    vbox(
+//      labelText.map(x=>label(text(x))),
+//      hbox(
+//        input(textBi(first), promptText("first name"), width(.5)),
+//        input(textBi(last),  promptText("last name"), width(.5))),
+//      button(callback(_ => clicked.transform(_+1)), text("submit"),
+//        Val(disabled(first.get.length<1 || last.get.length<1)))
+//    )
+//  }
 
-    vbox(
-      labelText.map(x=>label(text(x))),
-      hbox(
-        sInput(first, promptText("first name"), width(.5)),
-        sInput(last,  promptText("last name"), width(.5))),
-      sButton(() => clicked.transform(_+1), text("submit"),
-        Val(disabled(first.get.length<1 || last.get.length<1)))
-    )
-  }
+  def checkedBi(sig: Var[Boolean]): Mod = modGroup(
+      Val(checked(sig.get)),
+      callback( _ => sig.transform(!_) )
+  )
 
-  def sCheckbox(sig: Var[Boolean], m: Mod*): Blueprint = checkbox((Seq[Mod](
-    Val(checked(sig.get)),
-    callback( _ => sig.transform(!_) )
-  )++ m):_*)
-
-  def sInput(sig: Var[String], m: Mod*): Blueprint = input((Seq[Mod](
+  def textBi(sig: Var[String]): Mod = modGroup(
     Val(text(sig.get)),
     callback { w => sig.set(textOf(w)) },
-  )++ m):_*)
+  )
 
   def sCommand(sig: String => Unit, m: Mod*): Blueprint = input((Seq[Mod](
     callback { w =>
       transact(sig(textOf(w)))
       text("").applyTo(w)
     },
-  )++ m):_*)
-
-  def sButton(click: () => Unit, m: Mod*): Blueprint = button((Seq[Mod](
-    callback( w => transact(click()) ),
   )++ m):_*)
 
 //  def sClock(): Widget = {

@@ -1,4 +1,6 @@
-import drx.{concreteplatform, withInstant}
+package old
+
+import drx.concreteplatform
 import drx.graph.{Obs, Rx}
 import org.scalajs.dom
 import org.scalajs.dom.Element
@@ -7,13 +9,7 @@ import scalatags.JsDom.all._
 import scalatags.generic.{AttrPair, StylePair}
 
 import scala.collection.mutable
-import scala.language.implicitConversions
 import scala.scalajs.js
-
-// TODO never .render followed by appendChild. Then the component was not activated...
-//      maybe fixed now
-
-// TODO maybe convert to Frags instead of Modifiers
 
 /** Created by david on 15.09.17. */
 object RxDom {
@@ -148,7 +144,7 @@ object RxDom {
       yield y).toSet[Obs[_]]
   }
 //  platform.platform.collector = () => collectChildSinks(dom.document.body)
- 
+
   private def foreachChildSink(fc: dom.Element)(f: Obs[_] => Unit): Unit =
     collectChildSinks(fc).foreach(f)
   private def foreachSink(fc: dom.Element)(f: Obs[_] => Unit): Unit =

@@ -18,7 +18,7 @@ object DSL {
   def SeqVar[X](): SeqVar[X] = innerdsl.RawVar(Seq(), x => x)
 
   private var transactionActive = 0
-  var postTxCalls: mutable.Buffer[() => Unit] = mutable.Buffer()
+  var getEnableds: mutable.Buffer[() => Set[Val[_]]] = mutable.Buffer()
   def transact[X](f: => X): X = {
     transactionActive += 1
     val x = f
@@ -39,15 +39,17 @@ object DSL {
 
     def zip[Y](y: Val[Y]): Val[(O,Y)] = Val((get, y.get))
     def map[Y](f: O => Y): Val[Y] = Val(f(get))
-    def foreach(f: O => Unit): Val[Unit] = {
+    def foreach(f: O => Unit)(implicit owner: Owner): Val[Unit] = {
       val result = Val(f(get))
-      result.enable() // leaky!
+      //owner.register(result)
       result
     }
-    def scan[Y](init: Y)(f: (Y, O) => Y): Val[Y] = {
+    def scan[Y](init: Y)(f: (Y, O) => Y)(implicit owner: Owner): Val[Y] = {
       var x: O = get
       var y: Y = init
-      Val { val newx = get; if (x != newx) { x = newx; y = f(y, x) }; y }
+      val result = Val { val newx = get; if (x != newx) { x = newx; y = f(y, x) }; y }
+      //owner.register(result)
+      result
     }
   }
 
@@ -56,33 +58,9 @@ object DSL {
     def transform(f: O => I): Unit = { val x = f(get); set(x) }
   }
 
-  sealed abstract class Polarized[X]
-  case class Pos[X](content: X) extends Polarized[X]
-  case class Neg[X](content: X) extends Polarized[X]
-
-  final class VarMap[X] {
-    val diffs: SeqVar[(String, Polarized[X])] = SeqVar[(String, Polarized[X])]()
-    val aggregate: Val[Map[String, X]] = diffs.scan(Map[String, X]())(VarMap.add[X])
-    def sampleAsDelta: Seq[(String, Polarized[X])] = aggregate.sample.mapValues(x => Pos(x)).toSeq
-    def update(delta: Seq[(String, Polarized[X])]): Unit = delta.foreach(diffs.set)
-    def remove(delta: Seq[String]): Unit = { val tmp = aggregate.sample; update(delta.map(k => (k, Neg(tmp(k))))) }
-    def keep(func: X => Boolean): Unit = remove(aggregate.sample.filter(x => func(x._2)).keys.toSeq)
-  }
-
-  object VarMap {
-    def apply[X]() = new VarMap[X]()
-    def add[X](x: Map[String, X], y: Seq[(String, Polarized[X])]): Map[String, X] = {
-      (x.mapValues(x => Pos(x)) ++ y) collect
-        { case (k, Pos(v)) => (k, v) }
-    }
-  }
-
-  implicit class ImapmapValues[X,Y](val rx: Val[TraversableOnce[(String, Polarized[X])]]) extends AnyVal {
-    def mapmapValues(fun: X => Y): Val[TraversableOnce[(String, Polarized[Y])]] =
-      rx.map { seq => seq map {
-        case (k, Pos(v)) => k -> Pos(fun(v))
-        case (k, Neg(v)) => k -> Neg(fun(v))
-      } }
+  class Owner {
+    val children: mutable.Buffer[Val[_]] = mutable.Buffer[Val[_]]()
+    def register(valu: Val[_]): Unit = children.append(valu)
   }
 }
 

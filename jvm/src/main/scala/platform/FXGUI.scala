@@ -1,13 +1,13 @@
-package away
+package platform
 
 import scala.collection.JavaConverters._
-import drx.interface.GUI
-import javafx.scene.layout.{FlowPane, HBox, Pane, VBox}
-import javafx.scene.{Node, Parent}
-import javafx.stage.Stage
+
 import drx.concreteplatform
+import drx.interface.GUI
 import javafx.scene.control.{Button, CheckBox, Label, TextField}
+import javafx.scene.layout.{HBox, Pane, VBox}
 import javafx.scene.text.{Text, TextFlow}
+import javafx.scene.{Node, Parent}
 
 import scala.collection.mutable
 
@@ -70,19 +70,20 @@ object FXGUI extends GUI[Node] {
   override def input(ms: Mod*): Blueprint = createElement(new TextField(), ms:_*)
   override def checkbox(ms: Mod*): Blueprint = createElement(new CheckBox(), ms :_*)
 
-  private val remember = concreteplatform.WeakMap[Node, Boolean]()
+  //private val remember = concreteplatform.WeakMap[Node, Boolean]()
   def getMarkedChildren(parent: Node): Seq[Node] = {
     val lst = mutable.Buffer[Node]()
     parent match {
       case parent: Parent =>
         parent.getChildrenUnmodifiable.forEach { child =>
-          if (remember.get(child).isDefined) lst.append(child)
+          //if (remember.get(child).isDefined)
+          lst.append(child)
           lst.appendAll(getMarkedChildren(child))
         }
       case _ =>
     }
     lst
   }
-  override def mark(it: Node): Unit = remember.set(it, true)
-  override def unmark(it: Node): Unit = remember.set(it, false)
+  override def mark(it: Node): Unit = () //remember.set(it, true)
+  override def unmark(it: Node): Unit = () //remember.set(it, false)
 }

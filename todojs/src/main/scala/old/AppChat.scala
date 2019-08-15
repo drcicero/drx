@@ -1,19 +1,16 @@
-/** Created by david on 05.05.17. */
-
-// TODO hm, folds must be toplevel or inside Extra.lazyExtAttr blocks...?
+package old
 
 import java.util.concurrent.ThreadLocalRandom
 
+import upickle.default.{ReadWriter, macroRW}
 import drx.Remote._
-import RxDom._
-import RxDomHelper.{rxInput, _}
+import drx.graph._
 import drx._
-import drx.graph.{Rx, Val, Var}
+import old.RxDom._
+import old.RxDomHelper._
 import org.scalajs.dom
 import scalatags.JsDom.all._
-import upickle.default.{ReadWriter, macroRW}
 
-import scala.language.implicitConversions
 import scala.scalajs.js.Date
 
 object AppChat {

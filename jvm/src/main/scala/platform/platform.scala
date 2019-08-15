@@ -62,7 +62,7 @@ trait platform extends abstractplatform {
     i += 1
 
     // save histo
-    val histo = GCHelper.getHisto3
+    val histo = heapSize().toLong.toString + "\n" + GCHelper.getHisto1
     Files.writeString(Paths.get(s"debuggraphs/histo-$j-$i.txt"), histo)
 
     // save graph

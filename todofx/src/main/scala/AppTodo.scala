@@ -1,20 +1,17 @@
 import javafx.application.Application
-import javafx.scene.layout.{HBox, StackPane, VBox}
-import javafx.scene.{Node, Scene}
+import javafx.scene.layout.StackPane
+import javafx.scene.Scene
 import javafx.stage.Stage
 import drx._
-import main.{Task, Todolist}
-import RxFxHelper._
-import drx.graph.{Rx, Val, Var}
-import RxFx.SignalToNode
 import javafx.geometry.Insets
 import javafx.scene.control.ScrollPane
+import platform.FXGUI
 
 class AppTodo extends Application {
 
   def startWithA(primaryStage: Stage, title: String, box: javafx.scene.Node): Unit = {
     concreteplatform.storePrimaryStage(primaryStage)
-    away.FXGUI.init(box)
+    FXGUI.init(box)
     //concreteplatform.fpost("test", "test")
 
     //    val gcbuttext = Var("collect")
@@ -34,14 +31,14 @@ class AppTodo extends Application {
     val root = new StackPane()
     root.setPadding(new Insets(10))
     root.getChildren.add(new ScrollPane())
-    away.FXGUI.insertChild(root, box)
+    platform.FXGUI.insertChild(root, box)
     primaryStage.setTitle(title)
     primaryStage.setScene(new Scene(root, 640, 480))
     primaryStage.show()
   }
 
   override def start(primaryStage: Stage): Unit = {
-    startWithA(primaryStage, "abstract pull todo js", drx.interface.ATodoApp.mkATodoApp(away.FXGUI))
+    startWithA(primaryStage, "abstract pull todo js", drx.interface.ATodoApp.mkATodoApp(platform.FXGUI))
   }
 
 }

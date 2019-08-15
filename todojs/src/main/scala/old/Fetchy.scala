@@ -1,6 +1,8 @@
+package old
+
 import org.scalajs.dom.experimental.{Fetch, HttpMethod, RequestInit}
 
-import scala.concurrent.ExecutionContext.Implicits.global
+import drx.concreteplatform._
 import scala.concurrent.Future
 import scala.scalajs.js.typedarray.Uint8Array
 

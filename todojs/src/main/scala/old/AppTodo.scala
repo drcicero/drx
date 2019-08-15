@@ -1,22 +1,16 @@
-/** Created by david on 05.05.17. */
-
-// TODO hm, folds must be toplevel or inside Extra.lazyExtAttr blocks...?
+package old
 
 import drx.graph.{Scan, Val, Var}
+import drx.{Extras, debug}
 import main.{Task, Todolist}
-
-import scala.collection.mutable
-import scala.scalajs.js
-
-//import drx.Network._
-import RxDom._
-import RxDomHelper._
-import drx._
+import old.RxDom._
+import old.RxDomHelper._
 import org.scalajs.dom
 import scalatags.JsDom
 import scalatags.JsDom.all._
 
-//import scala.language.implicitConversions
+import scala.collection.mutable
+import scala.scalajs.js
 
 object AppTodo {
 
@@ -86,7 +80,7 @@ object AppTodo {
   }
 
   val rxTask: Task => JsDom.TypedTag[dom.html.Element] =
-    Extras.lazyExtAttrForPull { that =>
+    Extras.lazyExtAttr { that =>
       val changeCtr = Scan(0){ prev => that.title.get; that.done.get; prev + 1 }
 
       val changed = Var[Boolean](false)
@@ -114,84 +108,3 @@ object AppTodo {
     }
 
 }
-
-//      rxClock(), br,
-
-
-
-//val fullName: Var[String] = Var("")
-//drx.Network.publish(fullName)
-//drx.Network.subscribe[String]("", "fullname") observe {
-//  case (_, valu) => fullName set valu
-//}
-//      rxFullName(Signal("So be it!"), fullName), br,
-//      "Hello ", fullName.map(span(_)), "!", br,
-
-
-
-//br, br, br,
-// snake game
-//  val clock = Var(0)
-//  class Cell(val x: Int, val y: Int, c: Int) extends VarOwner {
-//    val content: Var[Int] = mkVar(c, "c")
-//    override def toString: String = content.sample.toString
-//  }
-//  val game = new Store((xyc: (Int, Int, Int)) => new Cell(xyc._1, xyc._2, xyc._3), "game")
-//  def tick(): Unit = {}
-//  def rxCell(cell: Cell): JsDom.TypedTag[dom.html.Div] = {
-//    div(
-//      Signal(style:="position:absolute;left:"+(100*cell.x/10.0)+"%;top:"+(100*cell.y/10.0)+"%;width:9%;height:9%;background:rgba("+(cell.content.get*255.0/3)+",0,0,1)")
-//    )
-//  }
-//    val gamefield = div(style:="position:relative;height:320px", game dmapmap rxCell)
-
-//    for (y <- 0 to 9; x <- 0 to 9)
-//      yield game.create((x, y, if (x==4&&y==4) 1 else if (x==4&&y==3) 2 else 0))
-
-//      gamefield,
-
-//      p("debug:"),
-//      button("gen ten", onclick:=(() =>
-//        model.creates( for (i <- 0 to 10) yield ({uniq+=1; uniq.toString}, "unique" + i, false) ))),
-//      button("del ten", onclick:=(() =>
-//        model.remove(model.sample))),
-
-//      button("paint", onclick:=(() =>
-//        log.value = drx.debug.stringit(collectChildSinks(dom.document.body)))),
-
-//      log,
-
-//      button(
-//        style:="display:block", onclick:={ () =>
-//          val tmp = dom.document.querySelector("#svg-container")
-//          tmp.innerHTML = tmp.innerHTML + dom.window.asInstanceOf[js.Dynamic]
-//            .Viz(drx.debug.stringit(collectChildSinks(dom.document.body)),
-//                 Map("engine" -> "dot")).asInstanceOf[String]
-//        }, "So be it!"),
-
-//      button("doit", onclick:={ () => drx.helper.printless() }),
-
-
-
-
-
-
-
-
-
-//    val ximg = Var("")
-//      ximg.map(x => img(src:=x)),
-//    import scala.concurrent.ExecutionContext.Implicits.global
-//    import scala.concurrent.Future
-//    val dino = "http://dinoipsum.herokuapp.com/api/?format=text&paragraphs=3"
-//    fetchText(dino)
-//    .flatMap(_ => fetchText(dino))
-//    .flatMap(_ => fetchText(dino))
-//    .flatMap(_ => fetchText("http://www.random.org/integers/" +
-//      "?num=1&min=10&max=55&base=10&format=plain&rnd=new&col=1"))
-//    .flatMap{ x =>
-//      println((2, x.trim.toInt));
-//      val a = fetchBase64("https://picsum.photos/"+(x.trim.toInt * 10)+"/200/")
-//      val b = fetchText(dino)
-//      Future.sequence(Seq(a, b)) }
-//    .foreach(x => ximg set "data:image/jpeg;base64," + x(0))

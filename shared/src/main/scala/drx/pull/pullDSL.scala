@@ -19,14 +19,12 @@ object pullDSL extends DSLTrait {
     dirtyVars.clear()
 
     var runo = mutable.Set[Val[_]]()
-    postTxCalls.foreach(_())
-    var newo = (enableds -- runo).toSet
+    var newo = ((enableds ++ getEnableds.flatMap(_())) -- runo).toSet
     while (newo.nonEmpty) {
       //println("  obs " + newo)
       newo.foreach(_.sample)
       runo ++= newo
-      postTxCalls.foreach(_())
-      newo = (enableds -- runo).toSet
+      newo = ((enableds ++ getEnableds.flatMap(_())) -- runo).toSet
     }
 
     println("  end " + enableds.size)

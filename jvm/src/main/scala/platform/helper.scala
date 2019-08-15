@@ -4,21 +4,27 @@ import javax.management.{InstanceNotFoundException, MBeanException, ObjectName, 
 import java.lang.management.ManagementFactory
 
 object GCHelper {
-  def getHisto1: Array[Byte] = { /* slow */
+  def getHisto1: String = { /* slow */
     val pid = ProcessHandle.current.pid
-    val cmd = Array("/bin/sh", "-c", s"jmap -histo:live $pid | grep drx.graph.[^$$]*$$")
-    Runtime.getRuntime.exec(cmd).getInputStream.readAllBytes()
+    val cmd = Array("/bin/sh", "-c", s"jmap -histo:live $pid | grep drx.[^$$]*$$")
+    new String(Runtime.getRuntime.exec(cmd).getInputStream.readAllBytes())
   }
-  def getHisto2: Array[Byte]= { /* slow */
+  def getHisto2: String = { /* slow */
     val pid = ProcessHandle.current.pid
-    val cmd = Array("/bin/sh", "-c", s"cjmd GC.class_stats $pid | grep drx.graph.[^$$]*$$")
-    Runtime.getRuntime.exec(cmd).getInputStream.readAllBytes()
+    val cmd = Array("/bin/sh", "-c", s"jcmd GC.class_stats $pid | grep drx.[^$$]*$$")
+    new String(Runtime.getRuntime.exec(cmd).getInputStream.readAllBytes().toString)
   }
   def getHisto3: String =
-    invokeNoStringArgumentsCommand("gcClassHistogram") split "\n" filter
-      (x => x.contains("drx") && !x.contains("$")) mkString "\n"
-  def parseHisto(str: String): Map[String, String] =
-    (str split "\n" map { x: String => val Array(a,b,c,d) = x split "\t"; d -> b }).toMap
+    invokeNoStringArgumentsCommand("gcClassHistogram")
+      .split("\n").filter(x => x.contains("drx.") && !x.contains("$")).mkString("\n")
+  def parseHisto(str: String): (Long, Map[String, Int]) = {
+    val lines = str.strip() split "\n"
+    val usedMemory = lines(0).toLong
+    val instanceCount = lines drop 1 map { x: String =>
+      val Array(_, amount, bytes, classname) = x split "  +"
+      classname.strip() -> amount.strip().toInt }
+    (usedMemory, instanceCount.toMap)
+  }
 
   // from https://github.com/dustinmarx/javautilities/blob/master/dustin/utilities/diagnostics/VirtualMachineDiagnostics.java
   private val DIAGNOSTIC_COMMAND_MBEAN_OBJECT_NAME = "com.sun.management:type=DiagnosticCommand"

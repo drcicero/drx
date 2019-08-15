@@ -30,7 +30,7 @@ trait AbstractWeakMap[Key, Value] {
   def set(key: Key, value: Value): Unit
 }
 class ScalaWeakMap[Key, Value] extends AbstractWeakMap[Key, Value] {
-  private val map = scala.collection.mutable.WeakHashMap[Key, Value]()
+  val map = scala.collection.mutable.WeakHashMap[Key, Value]()
   override def delete(key: Key): Unit = map.remove(key)
   override def has(key: Key): Boolean = map.contains(key)
   override def get(key: Key): Option[Value] = map.get(key)
