@@ -9,7 +9,7 @@ import javafx.scene.Scene
 import javafx.scene.layout.{StackPane, VBox}
 import javafx.stage.Stage
 import javafx.scene.chart.{LineChart, NumberAxis, XYChart}
-import javafx.scene.image.ImageView
+import javafx.scene.image.{Image, ImageView}
 import javafx.util.Duration
 
 class AppMonitor extends Application {
@@ -27,41 +27,28 @@ class AppMonitor extends Application {
     (usedMemory, instanceCount.toMap)
   }
 
+  def onExists(file: Path)(doit: Path => Path): Unit = {
+    after(1000) { () =>
+      var file2 = file
+      while (Files.exists(file2)) file2 = doit(file2)
+      onExists(file2)(doit)
+    }
+  }
+
   override def start(primaryStage: Stage): Unit = {
     val imageView = new ImageView()
-
-    def onExists(file: Path)(doit: Path => Path): Unit = {
-      after(1000) { () =>
-        var file2 = file
-        while (Files.exists(file2)) file2 = doit(file2)
-        onExists(file2)(doit)
-      }
+    onExists(Paths.get("debuggraphs/graph1.dot.png")) { file =>
+      val image = new Image("file:///" + file.toAbsolutePath.toString)
+      imageView.setImage(image)
+      file
     }
-
-//    onExists(Paths.get("debuggraphs/graph1.dot.png")) { file =>
-//      val image = new Image("file:///" + file.toAbsolutePath.toString)
-//      imageView.setImage(image)
-//      file
-//    }
 
     //defining a series
     val varsSeries = new XYChart.Series[Number, Number]; varsSeries.setName("Live RawVars")
     val valsSeries = new XYChart.Series[Number, Number]; valsSeries.setName("Live Vals / 10")
     val memSeries = new XYChart.Series[Number, Number]; memSeries.setName("Memory in MB")
 
-    val newest = Files.list(Paths.get("debuggraphs")).iterator().asScala.toSeq
-      .filter(_.toString.startsWith("debuggraphs/histo-"))
-      .maxBy(Files.getLastModifiedTime(_))
-    val id = newest.toString.substring(18, newest.toString.indexOf('-', 18))
-    var j = 1
-    onExists(Paths.get(s"debuggraphs/histo-$id-$j.txt")) { file =>
-      j += 1
-      val (usedMem, map) = parseHisto(Files.readString(file))
-      varsSeries.getData.add(new XYChart.Data(j, map.getOrElse("drx.pull.PRawVar", 0).asInstanceOf[Int]))
-      valsSeries.getData.add(new XYChart.Data(j, map.getOrElse("drx.pull.PVal", 0).asInstanceOf[Int] / 10d))
-      memSeries.getData.add(new XYChart.Data(j, usedMem / 1000d / 1000d))
-      Paths.get(s"debuggraphs/histo-$id-$j.txt")
-    }
+    spawnThreadLoadDataInto(varsSeries, valsSeries, memSeries)
 
     val xAxis = new NumberAxis
     val yAxis = new NumberAxis
@@ -79,4 +66,21 @@ class AppMonitor extends Application {
     primaryStage.show()
   }
 
+  private def spawnThreadLoadDataInto(varsSeries: XYChart.Series[Number, Number],
+                                      valsSeries: XYChart.Series[Number, Number],
+                                      memSeries: XYChart.Series[Number, Number]): Unit = {
+    val newest = Files.list(Paths.get("debuggraphs")).iterator().asScala.toSeq
+      .filter(_.toString.startsWith("debuggraphs/histo-"))
+      .maxBy(Files.getLastModifiedTime(_))
+    val id = newest.toString.substring(18, newest.toString.indexOf('-', 18))
+    var j = 1
+    onExists(Paths.get(s"debuggraphs/histo-$id-$j.txt")) { file =>
+      j += 1
+      val (usedMem, map) = parseHisto(Files.readString(file))
+      varsSeries.getData.add(new XYChart.Data(j, map.getOrElse("drx.pull.PRawVar", 0).asInstanceOf[Int]))
+      valsSeries.getData.add(new XYChart.Data(j, map.getOrElse("drx.pull.PVal", 0).asInstanceOf[Int] / 10d))
+      memSeries.getData.add(new XYChart.Data(j, usedMem / 1000d / 1000d))
+      Paths.get(s"debuggraphs/histo-$id-$j.txt")
+    }
+  }
 }
