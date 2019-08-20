@@ -27,17 +27,17 @@ class AppMonitor extends Application {
     (usedMemory, instanceCount.toMap)
   }
 
-  def onExists(file: Path)(doit: Path => Path): Unit = {
+  def whenFileExists(file: Path)(doit: Path => Path): Unit = {
     after(1000) { () =>
       var file2 = file
       while (Files.exists(file2)) file2 = doit(file2)
-      onExists(file2)(doit)
+      whenFileExists(file2)(doit)
     }
   }
 
   override def start(primaryStage: Stage): Unit = {
     val imageView = new ImageView()
-    onExists(Paths.get("debuggraphs/graph1.dot.png")) { file =>
+    whenFileExists(Paths.get("debuggraphs/graph1.dot.png")) { file =>
       val image = new Image("file:///" + file.toAbsolutePath.toString)
       imageView.setImage(image)
       file
@@ -74,7 +74,7 @@ class AppMonitor extends Application {
       .maxBy(Files.getLastModifiedTime(_))
     val id = newest.toString.substring(18, newest.toString.indexOf('-', 18))
     var j = 1
-    onExists(Paths.get(s"debuggraphs/histo-$id-$j.txt")) { file =>
+    whenFileExists(Paths.get(s"debuggraphs/histo-$id-$j.txt")) { file =>
       j += 1
       val (usedMem, map) = parseHisto(Files.readString(file))
       varsSeries.getData.add(new XYChart.Data(j, map.getOrElse("drx.pull.PRawVar", 0).asInstanceOf[Int]))
