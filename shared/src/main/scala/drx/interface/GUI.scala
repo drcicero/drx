@@ -69,34 +69,13 @@ trait GUI[Element] {
   implicit def modToMod(sig: Val[Mod]): Mod = (parent: Element) =>
     addSink(parent, sig.map(_.applyTo(parent)))
 
-  implicit def seqToMod[X <: Element](diffs: Val[TraversableOnce[Blueprint]]
-                                     ): Mod = (parent: Element) => {
+  implicit def seqToMod[X <: Element](diffs: Val[Traversable[Blueprint]]
+                                      ): Mod = (parent: Element) => {
     val sinkDiff = diffs.map { diffmap =>
       getChildren(parent).reverse foreach remove // TODO why is reverse necessary?
       diffmap foreach { tag =>
         val newelem = tag.render
         insertChild(parent, newelem) }
-    }
-    addSink(parent, sinkDiff)
-  }
-
-  implicit def deltaToMod[X <: Element](diffs: Val[TraversableOnce[(String, Polarized[Blueprint])]]
-                                           ): Mod = (parent: Element) => {
-    val map = mutable.Map[String, Element]()
-    val sinkDiff = diffs.map { diffmap =>
-      diffmap foreach { case (k, pol) =>
-        val oldelem = map remove k
-        pol match {
-          case Pos(content) =>
-            val newelem = content.render
-            map(k) = newelem
-            if (oldelem.isDefined) replace(oldelem.get, newelem)
-            else insertChild(parent, newelem)
-          case Neg(_) if oldelem.isDefined =>
-            remove(oldelem.get)
-          case _ =>
-        }
-      }
     }
     addSink(parent, sinkDiff)
   }
@@ -138,7 +117,7 @@ trait GUI[Element] {
   def init(top: Element): Unit =
     getEnableds.append { () => getSinks(top).map(_._2) }
 
-  def replace(oldelem: Element, newelem: Element): Unit = transact {
+  def replace(oldelem: Element, newelem: Element): Unit = atomic {
     sinkMap.get(oldelem).getOrElse(Seq()).foreach { sink => // transfer sinks from old to new elem
       remSink(oldelem, sink)
       addSink(newelem, sink)
@@ -183,7 +162,7 @@ trait GUI[Element] {
   )
 
   def enterTextClear(sig: String => Unit): Mod = callback { w =>
-    transact(sig(textOf(w)))
+    atomic(sig(textOf(w)))
     text("").applyTo(w)
   }
 

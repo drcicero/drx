@@ -7,19 +7,20 @@ import scala.collection.mutable
 object DSL {
   // proxy
   var innerdsl: DSLTrait = _
-  def RawVar[I,O](init: Seq[I], f: Seq[I] => O): DSL.RawVar[I,O] = innerdsl.RawVar(init, f)
+  def RawVar[I,O](init: Bag[I], f: Bag[I] => O): DSL.RawVar[I,O] = innerdsl.RawVar(init, f)
   def Val[X](e: => X): Val[X] = innerdsl.Val(e)
 
   // sugar
   type Var[X] = RawVar[X,X]
-  type SeqVar[X] = RawVar[X,Seq[X]]
+  type BagVar[X] = RawVar[X, Bag[X]]
 
-  def Var[X](e: => X): Var[X] = innerdsl.RawVar[X,X](Seq(e), _.last)
-  def SeqVar[X](): SeqVar[X] = innerdsl.RawVar(Seq(), x => x)
+  def Var[X](e: => X): Var[X] = innerdsl.RawVar[X,X](new Bag(Map(e -> 1)), { bag =>
+    if (bag.size == 1) bag.iterator.next else sys.error("Var can only be set once per atomic") })
+  def BagVar[X](): BagVar[X] = innerdsl.RawVar(new Bag(), x => x)
 
   private var transactionActive = 0
   var getEnableds: mutable.Buffer[() => Set[Val[_]]] = mutable.Buffer()
-  def transact[X](f: => X): X = {
+  def atomic[X](f: => X): X = {
     transactionActive += 1
     val x = f
     if (transactionActive == 1) {
@@ -53,8 +54,9 @@ object DSL {
     }
   }
 
-  abstract class RawVar[I,O](reduce: Seq[I]=>O, dsl: DSLTrait) extends Val[O](dsl) {
-    def set(newValue: I): Unit
+  abstract class RawVar[I,O](reduce: Bag[I]=>O, dsl: DSLTrait) extends Val[O](dsl) {
+    def update(newValue: Bag[I]): Unit
+    def set(newValue: I): Unit = update(new Bag(Map(newValue -> 1)))
     def transform(f: O => I): Unit = { val x = f(get); set(x) }
   }
 
@@ -65,7 +67,7 @@ object DSL {
 }
 
 trait DSLTrait {
-  def RawVar[I,O](init: Seq[I], f: Seq[I] => O): DSL.RawVar[I,O] // events
+  def RawVar[I,O](init: Bag[I], f: Bag[I] => O): DSL.RawVar[I,O] // events
   def Val[O](e: => O): DSL.Val[O] // signals
   protected[drx] def forceStep(): Unit
 }
